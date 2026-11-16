@@ -135,8 +135,15 @@ jobs:
             rm -f "$OUT/installers/"*.dmg
             VERSION="$(node -p "require('./server-go/desktop-shell/src-tauri/tauri.conf.json').version")"
             ARCH="$(uname -m | sed 's/x86_64/x64/; s/arm64/aarch64/')"
-            hdiutil create -volname "HelixAgent" -srcfolder "$APP" -ov -format UDZO \
+            # hdiutil -srcfolder copies the folder's contents, so stage the .app
+            # (plus the usual Applications shortcut) instead of pointing it at
+            # the bundle itself; otherwise the DMG has loose executable files.
+            DMGROOT="$(mktemp -d)"
+            cp -R "$APP" "$DMGROOT/"
+            ln -s /Applications "$DMGROOT/Applications"
+            hdiutil create -volname "HelixAgent" -srcfolder "$DMGROOT" -ov -format UDZO \
               "$OUT/installers/HelixAgent_${VERSION}_${ARCH}.dmg"
+            rm -rf "$DMGROOT"
             # Portable macOS download is the signed .app itself.
             rm -rf "$P"
             mkdir -p "$P"

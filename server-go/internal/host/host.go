@@ -2496,7 +2496,14 @@ func (h *Host) dispatch(method string, raw json.RawMessage) (any, error) {
 		return listDirs(parent, h.cfg.Cwd), nil
 
 	case "fs.pick":
-		return map[string]any{"path": nil}, nil
+		path, err := pickFolder(str(p["start"]), str(p["title"]))
+		if err != nil {
+			return nil, err
+		}
+		if path == "" {
+			return map[string]any{"path": nil}, nil
+		}
+		return map[string]any{"path": path}, nil
 
 	case "system.apps":
 		return []any{map[string]any{"id": "files", "label": "File Manager"}}, nil
@@ -2724,7 +2731,13 @@ func openTarget(target string) error {
 	case "darwin":
 		cmd = exec.Command("open", target)
 	default:
-		cmd = exec.Command("xdg-open", target)
+		if p, err := exec.LookPath("xdg-open"); err == nil {
+			cmd = exec.Command(p, target)
+		} else if p, err := exec.LookPath("gio"); err == nil {
+			cmd = exec.Command(p, "open", target)
+		} else {
+			return fmt.Errorf("找不到 xdg-open 或 gio，无法打开文件管理器")
+		}
 	}
 	return cmd.Start()
 }
