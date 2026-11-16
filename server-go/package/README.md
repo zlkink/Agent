@@ -48,6 +48,16 @@ stop the host and every helper process before moving or deleting this folder.
 If a helper is force-killed, it exits on its own within a few seconds once its
 parent is gone.
 
+## macOS
+
+The release build is ad-hoc signed, not notarized with a paid Developer ID.
+If Gatekeeper still refuses the downloaded app, run once:
+
+```bash
+xattr -cr "/Applications/HelixAgent.app"
+open "/Applications/HelixAgent.app"
+```
+
 ## Requirements
 
 - Claude Code CLI (`claude`) on `PATH` or in `%USERPROFILE%\.prometheus\agents`

@@ -122,19 +122,43 @@ jobs:
           rm -rf "$OUT"
           mkdir -p "$OUT/installers" "$OUT/portable/HelixAgent"
           P="$OUT/portable/HelixAgent"
-          cp "$STAGE/HelixAgent${{ matrix.ext }}" "$P/"
-          cp -R "$STAGE/web" "$P/web"
-          cp -R "$STAGE/node" "$P/node"
-          cp server-go/package/README.md "$P/README.md"
-          DESKTOP="server-go/desktop-shell/src-tauri/target/release/helixagent-desktop${{ matrix.ext }}"
-          if [ ! -f "$DESKTOP" ]; then
-            DESKTOP="server-go/desktop-shell/src-tauri/target/release/HelixAgent${{ matrix.ext }}"
-          fi
-          cp "$DESKTOP" "$P/HelixAgent Desktop${{ matrix.ext }}"
+
           find server-go/desktop-shell/src-tauri/target/release/bundle -type f \
             \( -name '*.exe' -o -name '*.msi' -o -name '*.deb' -o -name '*.rpm' \
                -o -name '*.AppImage' -o -name '*.dmg' -o -name '*.app.tar.gz' \) \
             -exec cp -v {} "$OUT/installers/" \;
+
+          if [ "${RUNNER_OS}" = "macOS" ]; then
+            APP="$(find server-go/desktop-shell/src-tauri/target/release/bundle/macos -maxdepth 1 -name '*.app' | head -n1)"
+            test -n "$APP"
+            chmod +x "$APP/Contents/Resources/bin/HelixAgent"
+            chmod +x "$APP/Contents/MacOS/"*
+            # An unsigned/ad-hoc-broken bundle is reported by Gatekeeper as
+            # "damaged". Re-sign everything after the resources were copied.
+            codesign --force --deep --sign - "$APP"
+            codesign --verify --deep --strict "$APP"
+            rm -f "$OUT/installers/"*.dmg
+            VERSION="$(node -p "require('./server-go/desktop-shell/src-tauri/tauri.conf.json').version")"
+            ARCH="$(uname -m | sed 's/x86_64/x64/; s/arm64/aarch64/')"
+            hdiutil create -volname "HelixAgent" -srcfolder "$APP" -ov -format UDZO \
+              "$OUT/installers/HelixAgent_${VERSION}_${ARCH}.dmg"
+            # Portable macOS download is the signed .app itself.
+            rm -rf "$P"
+            mkdir -p "$P"
+            cp -R "$APP" "$P/HelixAgent.app"
+            cp server-go/package/README.md "$P/README.md"
+          else
+            cp "$STAGE/HelixAgent${{ matrix.ext }}" "$P/"
+            cp -R "$STAGE/web" "$P/web"
+            cp -R "$STAGE/node" "$P/node"
+            cp server-go/package/README.md "$P/README.md"
+            DESKTOP="server-go/desktop-shell/src-tauri/target/release/helixagent-desktop${{ matrix.ext }}"
+            if [ ! -f "$DESKTOP" ]; then
+              DESKTOP="server-go/desktop-shell/src-tauri/target/release/HelixAgent${{ matrix.ext }}"
+            fi
+            cp "$DESKTOP" "$P/HelixAgent Desktop${{ matrix.ext }}"
+          fi
+
           SUFFIX="${{ matrix.name }}"
           if [ "${RUNNER_OS}" = "Windows" ]; then
             powershell -NoProfile -Command "Compress-Archive -Path '$P' -DestinationPath '$OUT/HelixAgent-$SUFFIX.zip'"
