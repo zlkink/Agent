@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import type { GitBranch, GitChangedFile, GitCommit, GitDiff, GitFileChange, GitRange, GitStatus } from "@prometheus/protocol";
 
@@ -121,7 +122,22 @@ export async function status(dir: string): Promise<GitStatus> {
 	const probe = await runGit(dir, ["rev-parse", "--show-toplevel"]);
 	if (probe.code !== 0) return { isRepo: false, ahead: 0, behind: 0, files: [] };
 	const out = await git(dir, ["status", "--porcelain=v2", "--branch", "-z", "--untracked-files=all"]);
-	return { isRepo: true, root: probe.stdout.trim(), ...parseStatus(out) };
+	const root = probe.stdout.trim();
+	const status = parseStatus(out);
+	// Porcelain paths are relative to the repository root. A workspace may be a
+	// subfolder: scope the list to it and make paths relative to the workspace so
+	// diff/stage resolve to the right files.
+	const rel = relative(root, resolve(dir)).replaceAll("\\", "/");
+	if (rel && rel !== ".") {
+		const strip = (p: string) => (p.startsWith(`${rel}/`) ? p.slice(rel.length + 1) : p === rel ? "" : undefined);
+		status.files = status.files.flatMap((f) => {
+			const path = strip(f.path);
+			if (!path) return [];
+			const origPath = f.origPath ? strip(f.origPath) : undefined;
+			return [{ ...f, path, ...(origPath ? { origPath } : { origPath: undefined }) }];
+		});
+	}
+	return { isRepo: true, root, ...status };
 }
 
 // ---------- history & branches ----------
@@ -165,14 +181,38 @@ function clip(text: string): GitDiff {
 	return text.length > MAX_DIFF ? { text: text.slice(0, MAX_DIFF), truncated: true } : { text, truncated: false };
 }
 
+/** An empty file Git can diff an untracked file against; absolute so `-C dir` cannot rewrite it. */
+function emptyFile(): string {
+	const file = join(tmpdir(), "prometheus-empty-file");
+	if (!existsSync(file)) writeFileSync(file, "");
+	return file;
+}
+
+/** Git prints the temp/absolute paths; show the workspace-relative path like the other diffs. */
+function untrackedHeaders(text: string, path: string): string {
+	const shown = path.replaceAll("\\", "/");
+	return text
+		.split("\n")
+		.map((line) => {
+			if (line.startsWith("diff --git ")) return `diff --git a/${shown} b/${shown}`;
+			if (line.startsWith("--- ")) return "--- /dev/null";
+			if (line.startsWith("+++ ")) return `+++ b/${shown}`;
+			return line;
+		})
+		.join("\n");
+}
+
 export async function diff(dir: string, path: string, staged: boolean, untracked: boolean): Promise<GitDiff> {
 	checkPathspec(path);
 	if (untracked) {
 		// --no-index exits 1 when the files differ, which is the normal case here.
-		const r = await runGit(dir, ["diff", "--no-index", "--no-color", "--", process.platform === "win32" ? "NUL" : "/dev/null", path]);
-		return clip(r.stdout);
+		// `NUL` is not a device for Git's path parser on Windows, so use an
+		// absolute empty file instead.
+		const target = isAbsolute(path) ? path : join(dir, path);
+		const r = await runGit(dir, ["diff", "--no-index", "--no-color", "--", emptyFile(), target]);
+		return clip(untrackedHeaders(r.stdout, path));
 	}
-	return clip(await git(dir, ["diff", "--no-color", ...(staged ? ["--cached"] : []), "--", path]));
+	return clip(await git(dir, ["diff", "--no-color", "--relative", ...(staged ? ["--cached"] : []), "--", path]));
 }
 
 export async function show(dir: string, hash: string): Promise<GitDiff> {

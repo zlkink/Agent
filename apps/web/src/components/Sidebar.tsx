@@ -583,10 +583,6 @@ export function Sidebar({ target, onDisconnect }: { target: BackendTarget; onDis
 	}, [sessions]);
 	const personal = useMemo(() => (assistant ? sessions.filter((s) => sessionSpace(s, assistant.home) === "personal") : []), [sessions, assistant]);
 
-	const nav = [
-		{ view: "knowledge" as const, label: t("knowledge"), icon: BookOpen },
-		{ view: "memory" as const, label: t("memory"), icon: Brain },
-	];
 	const navClass = (on: boolean) =>
 		clsx("flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm transition-colors", on ? "bg-ink-800 text-ink-100" : "text-ink-400 hover:bg-ink-850 hover:text-ink-100");
 	// Plugin-backed entries come and go as plugins are switched on and off, with no restart.
@@ -595,6 +591,8 @@ export function Sidebar({ target, onDisconnect }: { target: BackendTarget; onDis
 		...(pluginActive(plugins, "automations") ? [{ view: "automations" as const, label: t("automations"), icon: AlarmClock }] : []),
 		...(pluginActive(plugins, "flows") ? [{ view: "flows" as const, label: t("flows"), icon: Workflow }] : []),
 		...(space === "work" && pluginActive(plugins, "git") ? [{ view: "git" as const, label: t("git"), icon: GitBranch }] : []),
+		{ view: "knowledge" as const, label: t("knowledge"), icon: BookOpen },
+		{ view: "memory" as const, label: t("memory"), icon: Brain },
 	];
 
 	return (
@@ -612,7 +610,7 @@ export function Sidebar({ target, onDisconnect }: { target: BackendTarget; onDis
 				>
 					<Plus className="size-4 text-ember-400" /> {t("startChat")}
 				</button>
-				{tools.length > 0 && (
+				{(tools.length > 0 || panels.length > 0) && (
 					<div className="mt-1 space-y-0.5">
 						{tools.map((n) => (
 							<button key={n.view} type="button" onClick={() => setView(n.view)} className={navClass(view === n.view)}>
@@ -620,6 +618,15 @@ export function Sidebar({ target, onDisconnect }: { target: BackendTarget; onDis
 								{n.label}
 							</button>
 						))}
+						{panels.map((p) => {
+							const on = typeof view === "object" && view.panel === p.url;
+							return (
+								<button key={`${p.plugin}:${p.id}`} type="button" onClick={() => setView({ panel: p.url })} className={navClass(on)}>
+									<PuzzleIcon className={clsx("size-4", on && "text-ember-400")} />
+									{p.title}
+								</button>
+							);
+						})}
 					</div>
 				)}
 			</div>
@@ -662,21 +669,6 @@ export function Sidebar({ target, onDisconnect }: { target: BackendTarget; onDis
 			)}
 
 			<nav className="space-y-0.5 border-t hairline px-2 py-2">
-				{nav.map((n) => (
-					<button key={n.view} type="button" onClick={() => setView(n.view)} className={navClass(view === n.view)}>
-						<n.icon className={clsx("size-4", view === n.view && "text-ember-400")} />
-						{n.label}
-					</button>
-				))}
-				{panels.map((p) => {
-					const on = typeof view === "object" && view.panel === p.url;
-					return (
-						<button key={`${p.plugin}:${p.id}`} type="button" onClick={() => setView({ panel: p.url })} className={navClass(on)}>
-							<PuzzleIcon className={clsx("size-4", on && "text-ember-400")} />
-							{p.title}
-						</button>
-					);
-				})}
 				<button type="button" onClick={() => openSettings()} className={navClass(view === "settings")}>
 					<Settings className={clsx("size-4", view === "settings" && "text-ember-400")} />
 					{t("settings")}

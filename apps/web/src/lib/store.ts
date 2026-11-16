@@ -1213,6 +1213,15 @@ export async function unqueue(kind: "steer" | "followUp", index: number, text: s
 	if (taken && edit) set({ editorText: { text: taken.text, nonce: Date.now(), images: taken.images, append: true } });
 }
 
+/** Take a queued message and send it right away, interrupting the reply that is running. */
+export async function promoteQueued(kind: "steer" | "followUp", index: number, text: string): Promise<void> {
+	const session = get().session;
+	if (!session) return;
+	const taken = await call((c) => c.rpc("chat.unqueue", { sessionId: session.id, kind, index, text }));
+	if (!taken?.text) return;
+	await sendPrompt(taken.text, "steer", taken.images);
+}
+
 export async function forkMessage(index: number): Promise<void> {
 	const session = get().session;
 	const ref = refOf(index);

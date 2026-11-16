@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prometheus Go host — Plan B POC</title>
+<style>
+  :root { color-scheme: dark; --bg:#1c1814; --panel:#26211c; --text:#e9e1d8; --muted:#a79a8c; --accent:#e8a87c; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.55 ui-sans-serif, system-ui, "Segoe UI", sans-serif; background:var(--bg); color:var(--text); }
+  main { max-width: 880px; margin: 0 auto; padding: 28px 20px 48px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  p.sub { margin: 0 0 20px; color: var(--muted); }
+  #log { background: var(--panel); border:1px solid #3a332c; border-radius: 12px; padding: 16px; min-height: 260px; white-space: pre-wrap; word-break: break-word; }
+  #log .tool { color: var(--accent); }
+  #log .meta { color: var(--muted); }
+  form { display:flex; gap:10px; margin-top: 14px; }
+  textarea { flex:1; resize: vertical; min-height: 64px; padding: 10px 12px; border-radius: 10px; border:1px solid #3a332c; background:#211c18; color:var(--text); font:inherit; }
+  button { padding: 0 20px; border:0; border-radius: 10px; background:var(--accent); color:#241a13; font-weight:700; cursor:pointer; }
+  button:disabled { opacity:.5; cursor:progress; }
+  #status { margin-top: 10px; color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Prometheus Go host</h1>
+  <p class="sub">Plan B POC — Go relay + Node agent-host (official Claude Agent SDK) + streamed NDJSON.</p>
+  <div id="log"></div>
+  <form id="f">
+    <textarea id="q" placeholder="问点什么… 例如：只回答 1+1 等于几"></textarea>
+    <button id="send">发送</button>
+  </form>
+  <div id="status">就绪</div>
+</main>
+<script>
+const log = document.getElementById('log');
+const status = document.getElementById('status');
+const q = document.getElementById('q');
+const send = document.getElementById('send');
+const f = document.getElementById('f');
+let cur = null;
+
+function line(text, cls) {
+  const span = document.createElement('span');
+  if (cls) span.className = cls;
+  span.textContent = text;
+  log.appendChild(span);
+  log.scrollTop = log.scrollHeight;
+  return span;
+}
+
+f.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const text = q.value.trim();
+  if (!text || send.disabled) return;
+  send.disabled = true;
+  status.textContent = '思考中…';
+  log.textContent = '';
+  cur = null;
+  try {
+    const res = await fetch('/chat', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    if (!res.ok || !res.body) throw new Error('HTTP ' + res.status);
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf('\n')) >= 0) {
+        const raw = buf.slice(0, i).trim();
+        buf = buf.slice(i + 1);
+        if (!raw) continue;
+        let ev;
+        try { ev = JSON.parse(raw); } catch { continue; }
+        if (ev.type === 'text_delta') { cur = cur || line(''); cur.textContent += ev.text; log.scrollTop = log.scrollHeight; }
+        else if (ev.type === 'thinking_delta') { /* hidden */ }
+        else if (ev.type === 'tool_start') { cur = null; line('\n[tool] ' + ev.name + '\n', 'tool'); }
+        else if (ev.type === 'permission') { cur = null; line('\n[permission] ' + ev.tool + '\n', 'meta'); }
+        else if (ev.type === 'done') { status.textContent = ev.isError ? '出错' : '完成'; if (!log.textContent && ev.result) line(ev.result); }
+        else if (ev.type === 'error') { cur = null; line('\n[error] ' + ev.message + '\n', 'meta'); status.textContent = '出错'; }
+        else if (ev.type === 'log') { /* stderr noise */ }
+      }
+    }
+  } catch (err) {
+    line('\n[error] ' + err.message + '\n', 'meta');
+    status.textContent = '出错';
+  } finally {
+    send.disabled = false;
+  }
+});
+
+q.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) f.requestSubmit();
+});
+</script>
+</body>
+</html>

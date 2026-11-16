@@ -11,7 +11,7 @@ import { fileToImage, ImageError, imageSrc, MAX_IMAGES } from "../lib/images.ts"
 import { inputAt, rememberInput } from "../lib/inputHistory.ts";
 import { loadDraft, NEW_CHAT_DRAFT, newChatDraft, saveDraft, switchDraft } from "../lib/drafts.ts";
 import { aliasKey, type SendMode, setPrefs, usePrefs } from "../lib/prefs.ts";
-import { abortRun, openSettings, pluginCall, sendPrompt, setModel, setPermissionMode, setThinking, toast, unqueue, useSpace, useStore } from "../lib/store.ts";
+import { abortRun, openSettings, pluginCall, promoteQueued, sendPrompt, setModel, setPermissionMode, setThinking, toast, unqueue, useSpace, useStore } from "../lib/store.ts";
 import { BACK_LAYER, useBackLayer } from "../lib/back.ts";
 import { useVisualViewport } from "../lib/viewport.ts";
 import { ComposerSheet, isSheetSendChord } from "./ComposerSheet.tsx";
@@ -41,6 +41,7 @@ const M = defineMessages({
 		queued: "排队中 · {q}",
 		steered: "插队中 · {q}",
 		editQueued: "编辑（取回输入框）",
+		sendNow: "立即插入（打断当前回复）",
 		withdraw: "撤回",
 		abort: "中断",
 		send: "发送",
@@ -94,6 +95,7 @@ const M = defineMessages({
 		queued: "Queued · {q}",
 		steered: "Steering · {q}",
 		editQueued: "Edit (move back to the composer)",
+		sendNow: "Insert now (interrupt the reply)",
 		withdraw: "Withdraw",
 		abort: "Stop",
 		send: "Send",
@@ -878,6 +880,9 @@ export function Composer({ newChat = false }: { newChat?: boolean }) {
 							<span className="min-w-0 flex-1 truncate">{t(steer ? "steered" : "queued", { q })}</span>
 							<button type="button" title={t("editQueued")} onClick={() => void unqueue(steer ? "steer" : "followUp", index, q, true)} className="shrink-0 rounded p-1 text-ink-500 hover:bg-ink-800 hover:text-ink-100">
 								<Pencil className="size-3" />
+							</button>
+							<button type="button" title={t("sendNow")} onClick={() => void promoteQueued(steer ? "steer" : "followUp", index, q)} className="shrink-0 rounded p-1 text-ink-500 hover:bg-ink-800 hover:text-ember-300">
+								<CornerDownRight className="size-3" />
 							</button>
 							<button type="button" title={t("withdraw")} onClick={() => void unqueue(steer ? "steer" : "followUp", index, q, false)} className="shrink-0 rounded p-1 text-ink-500 hover:bg-ink-800 hover:text-rose-400">
 								<X className="size-3" />

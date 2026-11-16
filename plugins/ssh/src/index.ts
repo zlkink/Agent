@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { homedir, userInfo } from "node:os";
 import { join } from "node:path";
 import { Type } from "typebox";
 import { createJsonStore, definePlugin } from "@prometheus/plugin-sdk";
@@ -13,6 +15,75 @@ const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
 const text = (value: string) => ({ content: [{ type: "text" as const, text: value }], details: {} });
 /** Clients never see the stored credential, only a mask telling them one exists. */
 const view = (h: SshHost) => ({ ...h, secret: h.secret ? MASK : "" });
+
+interface ImportCandidate {
+	name: string;
+	host: string;
+	user: string;
+	port: number;
+	identityFile?: string;
+}
+
+function expandHome(value: string): string {
+	const home = homedir();
+	return value.replace(/^~(?=$|[\\/])/, home).replace(/%d/g, home);
+}
+
+/** Parse concrete (non-wildcard) hosts from ~/.ssh/config. */
+function parseSshConfig(content: string): ImportCandidate[] {
+	const defaultUser = (() => {
+		try {
+			return userInfo().username;
+		} catch {
+			return process.env.USERNAME || process.env.USER || "root";
+		}
+	})();
+	type Block = { aliases: string[]; host: string; user: string; port: number; identityFile: string };
+	const blocks: Block[] = [];
+	let current: Block | null = null;
+	const flush = () => {
+		if (current && current.aliases.length) blocks.push(current);
+		current = null;
+	};
+	for (const raw of content.split(/\r?\n/)) {
+		const line = raw.trim();
+		if (!line || line.startsWith("#")) continue;
+		const match = /^([A-Za-z][A-Za-z0-9]*)\s+(.*)$/.exec(line);
+		if (!match) continue;
+		const key = match[1].toLowerCase();
+		const value = match[2].trim().replace(/^"(.*)"$/, "$1");
+		if (key === "host") {
+			flush();
+			current = {
+				aliases: value.split(/\s+/).filter((a) => a && !a.startsWith("!") && !/[*?]/.test(a) && !a.startsWith("%")),
+				host: "",
+				user: "",
+				port: 0,
+				identityFile: "",
+			};
+		} else if (current) {
+			if (key === "hostname") current.host = value;
+			else if (key === "user") current.user = value;
+			else if (key === "port") current.port = Number(value) || 0;
+			else if (key === "identityfile") current.identityFile = value;
+		}
+	}
+	flush();
+	const out: ImportCandidate[] = [];
+	for (const block of blocks) {
+		if (block.host && /%[a-z]/i.test(block.host)) continue;
+		for (const name of block.aliases) {
+			out.push({
+				name,
+				host: block.host || name,
+				user: block.user || defaultUser,
+				port: block.port || 22,
+				identityFile: block.identityFile ? expandHome(block.identityFile) : undefined,
+			});
+		}
+	}
+	return out;
+}
 
 export default definePlugin({
 	name: "ssh",
@@ -31,8 +102,9 @@ export default definePlugin({
 
 		ctx.rpc("list", async () => ({ hosts: (await store.read()).hosts.map(view) }));
 
-		ctx.rpc("save", async (p) => {
-			const h = (p.host ?? {}) as Partial<SshHost>;
+		ctx.rpc("save", async (p) => view(await saveHost((p.host ?? {}) as Partial<SshHost>)));
+
+		const saveHost = async (h: Partial<SshHost>): Promise<SshHost> => {
 			const auth = h.auth === "password" || h.auth === "agent" ? h.auth : "key";
 			const next: SshHost = {
 				id: str(h.id) || randomUUID().slice(0, 8),
@@ -55,7 +127,58 @@ export default definePlugin({
 				return { hosts: old ? s.hosts.map((x) => (x.id === next.id ? next : x)) : [...s.hosts, next] };
 			});
 			ctx.notifyChanged();
-			return view(next);
+			return next;
+		};
+
+		ctx.rpc("importCandidates", async () => {
+			const { hosts } = await store.read();
+			const existing = new Set(hosts.map((h) => h.name.toLowerCase()));
+			const file = join(homedir(), ".ssh", "config");
+			let text = "";
+			try {
+				text = await readFile(file, "utf8");
+			} catch {
+				return { hosts: [], error: "找不到 ~/.ssh/config" };
+			}
+			const candidates = parseSshConfig(text).map((c) => ({ ...c, existing: existing.has(c.name.toLowerCase()) }));
+			return { hosts: candidates };
+		});
+
+		ctx.rpc("import", async (p) => {
+			const names = Array.isArray(p.names) ? p.names.filter((n): n is string => typeof n === "string") : [];
+			if (!names.length) return { imported: 0, skipped: 0 };
+			let text = "";
+			try {
+				text = await readFile(join(homedir(), ".ssh", "config"), "utf8");
+			} catch {
+				return { imported: 0, skipped: names.length };
+			}
+			const byName = new Map(parseSshConfig(text).map((c) => [c.name, c]));
+			let imported = 0;
+			let skipped = 0;
+			for (const name of names) {
+				const c = byName.get(name);
+				if (!c) {
+					skipped++;
+					continue;
+				}
+				try {
+					await saveHost({
+						name: c.name,
+						host: c.host,
+						user: c.user,
+						port: c.port,
+						auth: c.identityFile ? "key" : "agent",
+						identityFile: c.identityFile,
+						note: "来自 ~/.ssh/config",
+					});
+					imported++;
+				} catch {
+					skipped++;
+				}
+			}
+			ctx.notifyChanged();
+			return { imported, skipped };
 		});
 
 		ctx.rpc("delete", async (p) => {

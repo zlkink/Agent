@@ -13,3 +13,16 @@ apps/desktop/src-tauri/gen/
 *.keystore
 .pi/
 .termux-cache/
+
+# HelixAgent build outputs (built locally or in CI)
+server-go/HelixAgent.exe
+server-go/prometheus.exe
+server-go/dist/
+server-go/desktop-shell/web/
+server-go/desktop-shell/src-tauri/target/
+server-go/desktop-shell/src-tauri/gen/
+server-go/desktop-shell/src-tauri/bin/
+server-go/build-artifacts/
+# Keep the bundled plugin host sources the desktop runs; only its node_modules is ignored.
+!server-go/node/plugin-host/dist/
+!server-go/node/plugin-host/dist/**

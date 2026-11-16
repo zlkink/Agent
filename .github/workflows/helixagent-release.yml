@@ -1,0 +1,169 @@
+name: HelixAgent Release
+
+# Cross-platform desktop app + installers, mirroring the original Prometheus
+# release pipeline: GitHub builds every platform, signs nothing it cannot, and
+# attaches installers plus portable archives to the release.
+on:
+  push:
+    tags: ["helix-v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: helixagent-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x64
+            os: windows-latest
+            goos: windows
+            goarch: amd64
+            ext: .exe
+            bundles: nsis,msi
+          - name: Linux x64
+            os: ubuntu-22.04
+            goos: linux
+            goarch: amd64
+            ext: ""
+            bundles: deb,appimage
+          - name: macOS Apple Silicon
+            os: macos-latest
+            goos: darwin
+            goarch: arm64
+            ext: ""
+            bundles: dmg
+          - name: macOS Intel
+            os: macos-15-intel
+            goos: darwin
+            goarch: amd64
+            ext: ""
+            bundles: dmg
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server-go/go.mod
+          cache-dependency-path: server-go/go.sum
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: server-go/desktop-shell/src-tauri
+
+      - name: Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build web UI
+        run: pnpm --filter @prometheus/web build
+
+      - name: Build Go host
+        shell: bash
+        run: |
+          set -eu
+          STAGE="server-go/desktop-shell/src-tauri/bin"
+          mkdir -p "$STAGE"
+          (cd server-go && GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} CGO_ENABLED=0 \
+            go build -trimpath -ldflags "-s -w" -o "desktop-shell/src-tauri/bin/HelixAgent${{ matrix.ext }}" ./cmd/prometheus)
+
+      - name: Stage web, sidecars and plugin host
+        shell: bash
+        run: |
+          set -eu
+          STAGE="server-go/desktop-shell/src-tauri/bin"
+          rm -rf "$STAGE/web" "$STAGE/node"
+          cp -R apps/web/dist "$STAGE/web"
+          mkdir -p "$STAGE/node"
+          cp -R server-go/node/agent-host "$STAGE/node/agent-host"
+          cp -R server-go/node/plugin-host "$STAGE/node/plugin-host"
+          rm -rf "$STAGE/node/plugin-host/node_modules"
+          mkdir -p "$STAGE/node/plugin-host/node_modules"
+          # The plugin host only needs typebox at runtime; LanceDB/PI are optional.
+          TMP="$(mktemp -d)"
+          printf '{"private":true}\n' > "$TMP/package.json"
+          (cd "$TMP" && npm install --no-audit --no-fund --omit=dev --no-save typebox@1.3.27)
+          cp -R "$TMP/node_modules/typebox" "$STAGE/node/plugin-host/node_modules/"
+          node server-go/desktop-shell/patch-web.mjs apps/web/dist server-go/desktop-shell/web
+
+      - name: Build desktop app and installers
+        shell: bash
+        working-directory: server-go/desktop-shell
+        run: |
+          pnpm dlx @tauri-apps/cli@2 build --config src-tauri/tauri.conf.json --bundles ${{ matrix.bundles }}
+
+      - name: Assemble portable package and artifacts
+        shell: bash
+        run: |
+          set -eu
+          STAGE="server-go/desktop-shell/src-tauri/bin"
+          OUT="server-go/build-artifacts"
+          rm -rf "$OUT"
+          mkdir -p "$OUT/installers" "$OUT/portable/HelixAgent"
+          P="$OUT/portable/HelixAgent"
+          cp "$STAGE/HelixAgent${{ matrix.ext }}" "$P/"
+          cp -R "$STAGE/web" "$P/web"
+          cp -R "$STAGE/node" "$P/node"
+          cp server-go/package/README.md "$P/README.md"
+          DESKTOP="server-go/desktop-shell/src-tauri/target/release/helixagent-desktop${{ matrix.ext }}"
+          if [ ! -f "$DESKTOP" ]; then
+            DESKTOP="server-go/desktop-shell/src-tauri/target/release/HelixAgent${{ matrix.ext }}"
+          fi
+          cp "$DESKTOP" "$P/HelixAgent Desktop${{ matrix.ext }}"
+          find server-go/desktop-shell/src-tauri/target/release/bundle -type f \
+            \( -name '*.exe' -o -name '*.msi' -o -name '*.deb' -o -name '*.rpm' \
+               -o -name '*.AppImage' -o -name '*.dmg' -o -name '*.app.tar.gz' \) \
+            -exec cp -v {} "$OUT/installers/" \;
+          SUFFIX="${{ matrix.name }}"
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            powershell -NoProfile -Command "Compress-Archive -Path '$P' -DestinationPath '$OUT/HelixAgent-$SUFFIX.zip'"
+          else
+            tar -C "$OUT/portable" -czf "$OUT/HelixAgent-$SUFFIX.tar.gz" HelixAgent
+          fi
+          ls -lh "$OUT" "$OUT/installers"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: helixagent-${{ matrix.os }}-${{ matrix.goarch }}
+          path: server-go/build-artifacts/**
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Publish release
+    if: startsWith(github.ref, 'refs/tags/helix-v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: HelixAgent ${{ github.ref_name }}
+          generate_release_notes: true
+          files: artifacts/**/*

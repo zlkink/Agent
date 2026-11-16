@@ -1,10 +1,10 @@
 import clsx from "clsx";
 import { confirmDialog } from "../lib/dialogs.ts";
-import { LoaderCircle, Plus, Terminal, Trash2, Zap } from "lucide-react";
+import { Download, LoaderCircle, Plus, Terminal, Trash2, Zap } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { defineMessages, useT } from "../lib/i18n.ts";
 import { onPluginChange, pluginCall, toast } from "../lib/store.ts";
-import { Badge, Button, Empty, Field, Input, PageHeader, Select } from "./ui.tsx";
+import { Badge, Button, Dialog, Empty, Field, Input, PageHeader, Select } from "./ui.tsx";
 
 interface SshHost {
 	id: string;
@@ -18,11 +18,31 @@ interface SshHost {
 	note?: string;
 }
 
+interface ImportCandidate {
+	name: string;
+	host: string;
+	user: string;
+	port: number;
+	identityFile?: string;
+	existing: boolean;
+}
+
 const M = defineMessages({
 	zh: {
 		title: "SSH 服务器",
 		subtitle: "配置可远程连接的服务器，Agent 可以用 ssh_exec / ssh_upload / ssh_download 工具操作它们",
 		add: "添加服务器",
+		import: "导入服务器",
+		importTitle: "从 ~/.ssh/config 导入",
+		importHint: "选择要导入的主机；已存在的同名主机会被跳过。",
+		importEmpty: "~/.ssh/config 中没有找到可导入的主机",
+		importMissing: "找不到 ~/.ssh/config",
+		selectAll: "全选",
+		importSelected: "导入 {n} 台",
+		importDone: "已导入 {n} 台服务器",
+		importSkipped: "跳过 {n} 台（已存在或不合法）",
+		cancel: "取消",
+		alreadyAdded: "已存在",
 		emptyTitle: "还没有 SSH 服务器",
 		emptyBody: "添加后，对话里可以让 Agent 在这些服务器上执行命令、上传下载文件。需要本机已安装 OpenSSH 客户端。",
 		name: "名称",
@@ -55,6 +75,17 @@ const M = defineMessages({
 		title: "SSH servers",
 		subtitle: "Configure servers to connect to. The agent can use ssh_exec / ssh_upload / ssh_download on them",
 		add: "Add server",
+		import: "Import servers",
+		importTitle: "Import from ~/.ssh/config",
+		importHint: "Pick the hosts to import. Existing hosts with the same name are skipped.",
+		importEmpty: "No importable hosts found in ~/.ssh/config",
+		importMissing: "~/.ssh/config was not found",
+		selectAll: "Select all",
+		importSelected: "Import {n}",
+		importDone: "Imported {n} servers",
+		importSkipped: "Skipped {n} (already present or invalid)",
+		cancel: "Cancel",
+		alreadyAdded: "Already added",
 		emptyTitle: "No SSH servers yet",
 		emptyBody: "Once added, the agent can run commands and transfer files on these servers. Requires the OpenSSH client on this machine.",
 		name: "Name",
@@ -91,6 +122,9 @@ export function SshView() {
 	const t = useT(M);
 	const [hosts, setHosts] = useState<SshHost[]>([]);
 	const [editing, setEditing] = useState<SshHost | null>(null);
+	const [importing, setImporting] = useState<ImportCandidate[] | null>(null);
+	const [selected, setSelected] = useState<Set<string>>(new Set());
+	const [importBusy, setImportBusy] = useState(false);
 
 	const load = useCallback(async () => {
 		const r = await pluginCall<{ hosts: SshHost[] }>("ssh", "list");
@@ -101,15 +135,57 @@ export function SshView() {
 		return onPluginChange("ssh", () => void load());
 	}, [load]);
 
+	const openImport = async () => {
+		const r = await pluginCall<{ hosts: ImportCandidate[]; error?: string }>("ssh", "importCandidates");
+		if (!r) return;
+		if (r.error) {
+			toast(t("importMissing"), "error");
+			return;
+		}
+		if (!r.hosts.length) {
+			toast(t("importEmpty"));
+			return;
+		}
+		setImporting(r.hosts);
+		setSelected(new Set(r.hosts.filter((h) => !h.existing).map((h) => h.name)));
+	};
+
+	const doImport = async () => {
+		if (!selected.size) return;
+		setImportBusy(true);
+		const r = await pluginCall<{ imported: number; skipped: number }>("ssh", "import", { names: [...selected] });
+		setImportBusy(false);
+		if (!r) return;
+		toast(t("importDone", { n: r.imported }));
+		if (r.skipped) toast(t("importSkipped", { n: r.skipped }));
+		setImporting(null);
+		setSelected(new Set());
+		await load();
+	};
+
+	const toggle = (name: string) => {
+		setSelected((prev) => {
+			const next = new Set(prev);
+			if (next.has(name)) next.delete(name);
+			else next.add(name);
+			return next;
+		});
+	};
+
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">
 			<PageHeader
 				title={t("title")}
 				subtitle={t("subtitle")}
 				actions={
-					<Button variant="primary" onClick={() => setEditing(blank())}>
-						<Plus className="size-4" /> {t("add")}
-					</Button>
+					<>
+						<Button variant="outline" onClick={() => void openImport()}>
+							<Download className="size-4" /> {t("import")}
+						</Button>
+						<Button variant="primary" onClick={() => setEditing(blank())}>
+							<Plus className="size-4" /> {t("add")}
+						</Button>
+					</>
 				}
 			/>
 			<div className="flex min-h-0 flex-1">
@@ -151,6 +227,49 @@ export function SshView() {
 					/>
 				)}
 			</div>
+			{importing && (
+				<Dialog title={t("importTitle")} onClose={() => setImporting(null)}>
+					<p className="text-sm text-ink-400">{t("importHint")}</p>
+					<div className="flex items-center justify-between">
+						<label className="flex items-center gap-2 text-sm">
+							<input
+								type="checkbox"
+								checked={selected.size > 0 && selected.size === importing.filter((h) => !h.existing).length}
+								onChange={(e) =>
+									setSelected(e.target.checked ? new Set(importing.filter((h) => !h.existing).map((h) => h.name)) : new Set())
+								}
+							/>
+							{t("selectAll")}
+						</label>
+						<span className="font-mono text-xs text-ink-500">{selected.size}</span>
+					</div>
+					<div className="max-h-72 space-y-1 overflow-y-auto rounded-lg border border-ink-800 p-2">
+						{importing.map((c) => (
+							<label
+								key={c.name}
+								className={clsx(
+									"flex items-center gap-3 rounded-md px-2 py-1.5 text-sm",
+									c.existing ? "opacity-50" : "cursor-pointer hover:bg-ink-850",
+								)}
+							>
+								<input type="checkbox" disabled={c.existing} checked={selected.has(c.name)} onChange={() => toggle(c.name)} />
+								<span className="font-medium">{c.name}</span>
+								<span className="ml-auto truncate font-mono text-xs text-ink-500">
+									{c.user}@{c.host}:{c.port}
+								</span>
+								{c.existing && <Badge tone="muted">{t("alreadyAdded")}</Badge>}
+							</label>
+						))}
+					</div>
+					<div className="flex justify-end gap-2">
+						<Button onClick={() => setImporting(null)}>{t("cancel")}</Button>
+						<Button variant="primary" disabled={!selected.size || importBusy} onClick={() => void doImport()}>
+							{importBusy ? <LoaderCircle className="size-4 animate-spin" /> : <Download className="size-4" />}
+							{t("importSelected", { n: selected.size })}
+						</Button>
+					</div>
+				</Dialog>
+			)}
 		</div>
 	);
 }
