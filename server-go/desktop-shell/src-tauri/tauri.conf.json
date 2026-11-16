@@ -17,6 +17,7 @@
         "minHeight": 560,
         "backgroundColor": "#1c1814",
         "decorations": false,
+        "transparent": true,
         "visible": false,
         "shadow": true,
         "center": true

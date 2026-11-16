@@ -20,12 +20,39 @@ export default definePlugin({
 	name: "packages",
 	version: "0.1.0",
 	setup(ctx) {
+		const registry = resolveRegistry(ctx.settings.registry);
+
+		// Search only needs the registry, so the market stays usable before PI
+		// (which is optional) has been installed.
+		ctx.rpc("search", async (params): Promise<PackageSearchPage> => {
+			const query = typeof params.query === "string" ? params.query : "";
+			const page = Math.max(0, Math.min(Number.isInteger(params.page) ? (params.page as number) : 0, 500));
+			let res: Response;
+			try {
+				res = await fetch(searchUrl(registry, query, page, PAGE_SIZE), { signal: AbortSignal.timeout(SEARCH_TIMEOUT_MS), headers: { accept: "application/json" } });
+			} catch (err) {
+				throw new Error(`无法连接插件市场：${err instanceof Error ? err.message : err}`);
+			}
+			if (!res.ok) throw new Error(`插件市场返回 ${res.status}`);
+			return parseSearch(await res.json(), page, PAGE_SIZE);
+		});
+
 		if (!pi) {
 			ctx.log.warn("PI Agent 未安装，PI 扩展包管理不可用");
+			const notInstalled = () => {
+				throw new Error("PI Agent 未安装：请先在设置 → Runtimes 安装 PI");
+			};
+			ctx.rpc("list", async () => []);
+			ctx.rpc("install", notInstalled as never);
+			ctx.rpc("remove", notInstalled as never);
+			ctx.rpc("update", notInstalled as never);
+			ctx.rpc("dismiss", () => null);
+			ctx.rpc("jobs", () => []);
+			ctx.rpc("checkUpdates", async () => []);
 			return;
 		}
+
 		const { SettingsManager, DefaultPackageManager } = pi;
-		const registry = resolveRegistry(ctx.settings.registry);
 		const settings = SettingsManager.create(ctx.cwd, ctx.agentDir);
 		const manager = new DefaultPackageManager({ cwd: ctx.cwd, agentDir: ctx.agentDir, settingsManager: settings });
 
@@ -56,19 +83,6 @@ export default definePlugin({
 		};
 
 		ctx.rpc("list", list);
-
-		ctx.rpc("search", async (params): Promise<PackageSearchPage> => {
-			const query = typeof params.query === "string" ? params.query : "";
-			const page = Math.max(0, Math.min(Number.isInteger(params.page) ? (params.page as number) : 0, 500));
-			let res: Response;
-			try {
-				res = await fetch(searchUrl(registry, query, page, PAGE_SIZE), { signal: AbortSignal.timeout(SEARCH_TIMEOUT_MS), headers: { accept: "application/json" } });
-			} catch (err) {
-				throw new Error(`无法连接插件市场：${err instanceof Error ? err.message : err}`);
-			}
-			if (!res.ok) throw new Error(`插件市场返回 ${res.status}`);
-			return parseSearch(await res.json(), page, PAGE_SIZE);
-		});
 
 		ctx.rpc("install", (params): PackageJob => {
 			const source = normalizeSource(params.source);

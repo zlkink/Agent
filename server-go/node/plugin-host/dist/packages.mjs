@@ -237,12 +237,34 @@ var index_default = definePlugin({
   name: "packages",
   version: "0.1.0",
   setup(ctx) {
+    const registry = resolveRegistry(ctx.settings.registry);
+    ctx.rpc("search", async (params) => {
+      const query = typeof params.query === "string" ? params.query : "";
+      const page = Math.max(0, Math.min(Number.isInteger(params.page) ? params.page : 0, 500));
+      let res;
+      try {
+        res = await fetch(searchUrl(registry, query, page, PAGE_SIZE), { signal: AbortSignal.timeout(SEARCH_TIMEOUT_MS), headers: { accept: "application/json" } });
+      } catch (err) {
+        throw new Error(`\u65E0\u6CD5\u8FDE\u63A5\u63D2\u4EF6\u5E02\u573A\uFF1A${err instanceof Error ? err.message : err}`);
+      }
+      if (!res.ok) throw new Error(`\u63D2\u4EF6\u5E02\u573A\u8FD4\u56DE ${res.status}`);
+      return parseSearch(await res.json(), page, PAGE_SIZE);
+    });
     if (!pi) {
       ctx.log.warn("PI Agent \u672A\u5B89\u88C5\uFF0CPI \u6269\u5C55\u5305\u7BA1\u7406\u4E0D\u53EF\u7528");
+      const notInstalled = () => {
+        throw new Error("PI Agent \u672A\u5B89\u88C5\uFF1A\u8BF7\u5148\u5728\u8BBE\u7F6E \u2192 Runtimes \u5B89\u88C5 PI");
+      };
+      ctx.rpc("list", async () => []);
+      ctx.rpc("install", notInstalled);
+      ctx.rpc("remove", notInstalled);
+      ctx.rpc("update", notInstalled);
+      ctx.rpc("dismiss", () => null);
+      ctx.rpc("jobs", () => []);
+      ctx.rpc("checkUpdates", async () => []);
       return;
     }
     const { SettingsManager, DefaultPackageManager } = pi;
-    const registry = resolveRegistry(ctx.settings.registry);
     const settings = SettingsManager.create(ctx.cwd, ctx.agentDir);
     const manager = new DefaultPackageManager({ cwd: ctx.cwd, agentDir: ctx.agentDir, settingsManager: settings });
     const jobs = new JobTracker(explainFailure);
@@ -268,18 +290,6 @@ var index_default = definePlugin({
       await ctx.reloadSessions();
     };
     ctx.rpc("list", list);
-    ctx.rpc("search", async (params) => {
-      const query = typeof params.query === "string" ? params.query : "";
-      const page = Math.max(0, Math.min(Number.isInteger(params.page) ? params.page : 0, 500));
-      let res;
-      try {
-        res = await fetch(searchUrl(registry, query, page, PAGE_SIZE), { signal: AbortSignal.timeout(SEARCH_TIMEOUT_MS), headers: { accept: "application/json" } });
-      } catch (err) {
-        throw new Error(`\u65E0\u6CD5\u8FDE\u63A5\u63D2\u4EF6\u5E02\u573A\uFF1A${err instanceof Error ? err.message : err}`);
-      }
-      if (!res.ok) throw new Error(`\u63D2\u4EF6\u5E02\u573A\u8FD4\u56DE ${res.status}`);
-      return parseSearch(await res.json(), page, PAGE_SIZE);
-    });
     ctx.rpc("install", (params) => {
       const source = normalizeSource(params.source);
       return jobs.run("install", source, typeof params.label === "string" && params.label ? params.label.slice(0, 120) : fallbackName(source), async () => {

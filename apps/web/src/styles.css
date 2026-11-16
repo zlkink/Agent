@@ -513,3 +513,15 @@ html[data-entering] #root { animation: app-in 0.7s cubic-bezier(0.2, 0.8, 0.2, 1
 		animation: none;
 	}
 }
+
+/* macOS frameless window: the native window is transparent, the web surface
+   gets rounded corners and clips its children (the splash covers it too). */
+html.tauri-mac,
+html.tauri-mac body {
+	background: transparent !important;
+}
+html.tauri-mac #root,
+html.tauri-mac #splash {
+	border-radius: 12px;
+	overflow: hidden;
+}

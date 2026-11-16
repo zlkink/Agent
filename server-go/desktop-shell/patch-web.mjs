@@ -18,7 +18,7 @@ cpSync(src, dest, { recursive: true });
 const file = join(dest, 'index.html');
 let html = readFileSync(file, 'utf8');
 html = html.replace('<title>Prometheus</title>', '<title>HelixAgent</title>');
-const injection = `<script>try{if(window.__TAURI_INTERNALS__||location.hostname==="tauri.localhost"){if(!localStorage.getItem("prometheus.mode"))localStorage.setItem("prometheus.mode","local");var pr={};try{pr=JSON.parse(localStorage.getItem("prometheus.prefs")||"{}")}catch(e){}if(pr.lang!=="zh"&&pr.lang!=="en"){pr.lang="zh";localStorage.setItem("helixagent.langInit","1");localStorage.setItem("prometheus.prefs",JSON.stringify(pr));}}}catch(e){}</script>`;
+const injection = `<script>try{if(window.__TAURI_INTERNALS__||location.hostname==="tauri.localhost"){document.documentElement.classList.add("tauri");if(String(navigator.platform).indexOf("Mac")>=0)document.documentElement.classList.add("tauri-mac");if(!localStorage.getItem("prometheus.mode"))localStorage.setItem("prometheus.mode","local");var pr={};try{pr=JSON.parse(localStorage.getItem("prometheus.prefs")||"{}")}catch(e){}if(pr.lang!=="zh"&&pr.lang!=="en"){pr.lang="zh";localStorage.setItem("helixagent.langInit","1");localStorage.setItem("prometheus.prefs",JSON.stringify(pr));}}}catch(e){}</script>`;
 html = html.replace('</head>', `${injection}</head>`);
 writeFileSync(file, html);
 console.log(`patched ${file}`);

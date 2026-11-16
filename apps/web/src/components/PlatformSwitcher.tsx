@@ -19,7 +19,10 @@ export function PlatformSwitcher({ target }: { target: BackendTarget }) {
 	const { open, setOpen, ref } = usePopover();
 	const [canLocal, setCanLocal] = useState(false);
 	const isLocal = target.label === "local";
-	const list = open ? loadPlatforms() : [];
+	const platforms = loadPlatforms();
+	const saved = isLocal ? undefined : platforms.find((p) => samePlatform(p.url, target.httpBase));
+	const label = isLocal ? t("local") : (saved?.name ?? target.label);
+	const list = open ? platforms : [];
 
 	useEffect(() => {
 		if (isTauri()) void localSupported().then(setCanLocal);
@@ -28,8 +31,8 @@ export function PlatformSwitcher({ target }: { target: BackendTarget }) {
 	const item = "flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-ink-800";
 	return (
 		<div ref={ref} className="relative min-w-0">
-			<button type="button" onClick={() => setOpen(!open)} className="flex min-w-0 items-center gap-1 rounded px-1 py-0.5 hover:bg-ink-800 hover:text-ink-200" title={target.httpBase}>
-				<span className="truncate">{isLocal ? t("local") : target.label}</span>
+			<button type="button" onClick={() => setOpen(!open)} className="flex min-w-0 max-w-36 items-center gap-1 rounded px-1 py-0.5 hover:bg-ink-800 hover:text-ink-200" title={target.httpBase}>
+				<span className="truncate">{label}</span>
 				<ChevronUp className="size-3 shrink-0 opacity-60" />
 			</button>
 			{open && (
