@@ -280,8 +280,9 @@ export function TitleBar({ onToggleSidebar, bare }: { onToggleSidebar?: () => vo
 	const firstText = firstUser ? (typeof firstUser.content === "string" ? firstUser.content : firstUser.content.map((c) => (c.type === "text" ? c.text : "")).join("")).replace(/^<skill name="([^"]*)"[^>]*>[\s\S]*?<\/skill>\s*/, "/skill:$1 ") : "";
 	const name = title || session?.name || summary?.name || firstText.trim() || localizeError(summary?.firstMessage ?? "") || t("newChat");
 	const isMacPlatform = /mac/i.test(String(navigator.platform || navigator.userAgent));
+	const customWindowDoubleClick = isMacPlatform || /linux/i.test(String(navigator.platform || navigator.userAgent));
 	const toggleWindow = async () => {
-		if (!desktop || !isMacPlatform) return;
+		if (!desktop || !customWindowDoubleClick) return;
 		const { getCurrentWindow } = await import("@tauri-apps/api/window");
 		await getCurrentWindow().toggleMaximize();
 	};
@@ -308,7 +309,7 @@ export function TitleBar({ onToggleSidebar, bare }: { onToggleSidebar?: () => vo
 	return (
 		<header
 			onDoubleClick={
-				isMacPlatform
+				customWindowDoubleClick
 					? (e) => {
 							if ((e.target as HTMLElement).closest("button,input,select,textarea,a")) return;
 							void toggleWindow();
