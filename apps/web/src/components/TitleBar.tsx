@@ -279,6 +279,12 @@ export function TitleBar({ onToggleSidebar, bare }: { onToggleSidebar?: () => vo
 	const firstUser = session?.messages.find((m) => m.role === "user");
 	const firstText = firstUser ? (typeof firstUser.content === "string" ? firstUser.content : firstUser.content.map((c) => (c.type === "text" ? c.text : "")).join("")).replace(/^<skill name="([^"]*)"[^>]*>[\s\S]*?<\/skill>\s*/, "/skill:$1 ") : "";
 	const name = title || session?.name || summary?.name || firstText.trim() || localizeError(summary?.firstMessage ?? "") || t("newChat");
+	const isMacPlatform = /mac/i.test(String(navigator.platform || navigator.userAgent));
+	const toggleWindow = async () => {
+		if (!desktop || !isMacPlatform) return;
+		const { getCurrentWindow } = await import("@tauri-apps/api/window");
+		await getCurrentWindow().toggleMaximize();
+	};
 
 	let heading: React.ReactNode = null;
 	if (bare) {
@@ -300,7 +306,18 @@ export function TitleBar({ onToggleSidebar, bare }: { onToggleSidebar?: () => vo
 	}
 
 	return (
-		<header className="titlebar relative z-30 flex min-h-11 shrink-0 items-center gap-2 border-b hairline bg-ink-950/70 pl-2 backdrop-blur" data-tauri-drag-region>
+		<header
+			onDoubleClick={
+				isMacPlatform
+					? (e) => {
+							if ((e.target as HTMLElement).closest("button,input,select,textarea,a")) return;
+							void toggleWindow();
+						}
+					: undefined
+			}
+			className="titlebar relative z-30 flex min-h-11 shrink-0 items-center gap-2 border-b hairline bg-ink-950/70 pl-2 backdrop-blur"
+			data-tauri-drag-region
+		>
 			{onToggleSidebar && (
 				<button type="button" onClick={onToggleSidebar} className="rounded-md p-1.5 text-ink-400 hover:bg-ink-800 hover:text-ink-100 max-md:p-2.5" aria-label={t("toggleSidebar")}>
 					<PanelLeft className="size-4" />

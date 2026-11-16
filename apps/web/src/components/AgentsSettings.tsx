@@ -124,7 +124,7 @@ const M = defineMessages({
 		updateTo: "Update to {v}",
 		updating: "Updating…",
 		updateDone: "{name} updated to {v}; new chats use it",
-		updateHintPrometheus: "Upgrades the copy in RamiCore' folder to the latest version with npm",
+		updateHintPrometheus: "Upgrades the copy in RamiCore folder to the latest version with npm",
 		updateHintPath: "It was not installed with npm, so RamiCore cannot update it; update it the way you installed it",
 		updateHintNpm: "Upgrades it with npm where it is installed",
 		updateHintBundled: "The version bundled with RamiCore is in use. Updating installs the latest version into RamiCore' own folder and uses it from then on",

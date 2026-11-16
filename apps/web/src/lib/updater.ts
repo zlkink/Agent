@@ -45,7 +45,7 @@ let pending: Update | null = null;
 /** Android: where the new APK is downloaded from (the system installer takes over from there). */
 let apkUrl: string | null = null;
 
-const RELEASES_API = "https://api.github.com/repos/Mouseww/RamiCore/releases/latest";
+const RELEASES_API = "https://api.github.com/repos/zlkink/Agent/releases/latest";
 
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 

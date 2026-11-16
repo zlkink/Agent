@@ -534,6 +534,8 @@ export function Composer({ newChat = false }: { newChat?: boolean }) {
 	const enterToSend = usePrefs((p) => p.enterToSend);
 	const [cursor, setCursor] = useState(0);
 	const ref = useRef<HTMLTextAreaElement>(null);
+	const composing = useRef(false);
+	const compositionEndedAt = useRef(0);
 	const streaming = session?.isStreaming ?? false;
 	const view = useStore((s) => s.view);
 	const [expanded, setExpanded] = useState(false);
@@ -734,6 +736,10 @@ export function Composer({ newChat = false }: { newChat?: boolean }) {
 	const lacksVision = images.length > 0 && Boolean(model) && models.find((m) => m.provider === model?.provider && m.id === model.id)?.vision === false;
 
 	const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+		const native = e.nativeEvent as KeyboardEvent & { keyCode: number };
+		// During IME composition Enter selects a candidate; never treat it as "send".
+		if (native.isComposing || native.keyCode === 229) return;
+		const imeRecently = composing.current || Date.now() - compositionEndedAt.current < 80;
 		if (e.key === "Tab" && e.shiftKey) {
 			e.preventDefault();
 			const { session: s, draftPermission } = useStore.getState();
@@ -806,7 +812,7 @@ export function Composer({ newChat = false }: { newChat?: boolean }) {
 		}
 		// Enter only sends when the user asked for it (the default on desktop). On a phone Enter breaks the line and the
 		// send button sends, which is what touch keyboards expect.
-		if (e.key === "Enter" && !e.shiftKey && (enterToSend || (expanded && isSheetSendChord(e))) && !e.nativeEvent.isComposing) {
+		if (e.key === "Enter" && !e.shiftKey && (enterToSend || (expanded && isSheetSendChord(e))) && !e.nativeEvent.isComposing && !imeRecently) {
 			e.preventDefault();
 			void submit().then((sent) => sent && setExpanded(false));
 		}
@@ -952,6 +958,13 @@ export function Composer({ newChat = false }: { newChat?: boolean }) {
 					}}
 					onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
 					onKeyDown={onKeyDown}
+					onCompositionStart={() => {
+						composing.current = true;
+					}}
+					onCompositionEnd={() => {
+						composing.current = false;
+						compositionEndedAt.current = Date.now();
+					}}
 					onPaste={onPaste}
 					rows={1}
 					placeholder={streaming ? t("placeholderStreaming", { mode: t(sendMode) }) : t("placeholder")}

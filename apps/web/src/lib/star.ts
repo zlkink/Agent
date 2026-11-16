@@ -9,7 +9,7 @@
 //    no cached number that goes stale, no network call on startup.
 import { create } from "zustand";
 
-export const REPO = "Mouseww/RamiCore";
+export const REPO = "zlkink/Agent";
 export const REPO_URL = `https://github.com/${REPO}`;
 const STARS_API = `https://api.github.com/repos/${REPO}`;
 
