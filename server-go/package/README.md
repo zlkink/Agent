@@ -15,8 +15,13 @@ desktop app they are installed on first run (see below).
 ## First run
 
 Node.js 22.23.4 is required by the Claude sidecar and plugin host. If the machine
-has no suitable `node` on `PATH`, the first launch downloads it from nodejs.org
-into `%USERPROFILE%\.prometheus\go-poc\node`.
+has no suitable `node` on `PATH`, startup shows the runtime install screen instead
+of downloading silently; install Node under **Settings → Runtimes**, then reopen
+the app. Common macOS locations (Homebrew, `/usr/local/bin`, nvm, `~/.local/bin`)
+are searched automatically.
+
+A gateway is optional: without one, HelixAgent uses the Claude Code CLI's own
+login. Add a gateway in Settings at any time.
 
 PI is optional. Claude Code, Codex and the normal tools work without it; only the
 PI runtime, the plugin market and a few PI-based plugins need it. Install it from

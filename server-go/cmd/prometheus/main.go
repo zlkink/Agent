@@ -329,31 +329,43 @@ func build(ctx context.Context, o options) (*setup, error) {
 	}
 
 	if !o.Native {
-		cfg, err := config.Load()
-		if err != nil {
-			return nil, fmt.Errorf("load %s/config.json: %w", config.Home(), err)
+		// A gateway is optional: a fresh install/CLI login can run Claude Code
+		// natively, and the user can add a gateway later from Settings.
+		if cfg, err := config.Load(); err != nil {
+			log.Printf("no gateway config (%v); using the Claude Code login", err)
+			s.gateway = "native"
+			if s.model == "" {
+				s.model = "sonnet"
+			}
+			env["PROMETHEUS_GATEWAY"] = "0"
+			env["PROMETHEUS_MODEL"] = s.model
+		} else if gw, base, err := cfg.PickAnthropic(); err != nil {
+			log.Printf("%v; using the Claude Code login", err)
+			s.gateway = "native"
+			if s.model == "" {
+				s.model = "sonnet"
+			}
+			env["PROMETHEUS_GATEWAY"] = "0"
+			env["PROMETHEUS_MODEL"] = s.model
+		} else {
+			r, err := relay.Start(gw, base)
+			if err != nil {
+				return nil, err
+			}
+			s.relay = r
+			s.gateway = gw.ID
+			if s.model == "" {
+				s.model = cfg.PickModel(gw)
+			}
+			s.gatewayList = config.Masked([]config.Gateway{*gw})
+			env["PROMETHEUS_GATEWAY"] = "1"
+			env["PROMETHEUS_MODEL"] = s.model
+			env["ANTHROPIC_BASE_URL"] = r.URL
+			env["ANTHROPIC_AUTH_TOKEN"] = r.Token
+			env["ANTHROPIC_MODEL"] = s.model
+			env["ANTHROPIC_SMALL_FAST_MODEL"] = s.model
+			env["ANTHROPIC_API_KEY"] = "" // delete: the relay injects the real key
 		}
-		gw, base, err := cfg.PickAnthropic()
-		if err != nil {
-			return nil, err
-		}
-		r, err := relay.Start(gw, base)
-		if err != nil {
-			return nil, err
-		}
-		s.relay = r
-		s.gateway = gw.ID
-		if s.model == "" {
-			s.model = cfg.PickModel(gw)
-		}
-		s.gatewayList = config.Masked([]config.Gateway{*gw})
-		env["PROMETHEUS_GATEWAY"] = "1"
-		env["PROMETHEUS_MODEL"] = s.model
-		env["ANTHROPIC_BASE_URL"] = r.URL
-		env["ANTHROPIC_AUTH_TOKEN"] = r.Token
-		env["ANTHROPIC_MODEL"] = s.model
-		env["ANTHROPIC_SMALL_FAST_MODEL"] = s.model
-		env["ANTHROPIC_API_KEY"] = "" // delete: the relay injects the real key
 	} else {
 		env["PROMETHEUS_GATEWAY"] = "0"
 		if s.model == "" {
