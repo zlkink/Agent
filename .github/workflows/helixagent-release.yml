@@ -35,7 +35,7 @@ jobs:
             ext: ""
             bundles: deb,appimage
           - name: macOS Apple Silicon
-            os: macos-15
+            os: macos-latest
             goos: darwin
             goarch: arm64
             ext: ""
