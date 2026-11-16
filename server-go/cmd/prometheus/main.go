@@ -263,11 +263,11 @@ func build(ctx context.Context, o options) (*setup, error) {
 
 	node := o.Node
 	if node == "" {
-		// The installer does not ship Node any more: use the machine's copy or
-		// fetch the official build into ~/.prometheus/go-poc/node on first run.
-		node, err = ensureNode(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("Node.js setup: %w", err)
+		// Like the original desktop: do not silently download a runtime during
+		// the splash screen. Tell the UI to offer the Node install instead.
+		node = existingNode()
+		if node == "" {
+			return nil, fmt.Errorf("SETUP_NEEDED:node")
 		}
 	}
 	script, err := resolveScript(o.Sidecar, cwd)

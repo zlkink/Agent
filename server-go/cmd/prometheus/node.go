@@ -126,6 +126,23 @@ func eligibleNode(path string) bool {
 	return major > 22 || (major == 22 && minor >= 19)
 }
 
+// existingNode finds a usable Node without downloading anything. The desktop
+// uses this at startup and offers the runtime installer when it returns "".
+func existingNode() string {
+	if p := strings.TrimSpace(os.Getenv("PROMETHEUS_NODE")); p != "" {
+		if fi, err := os.Stat(p); err == nil && !fi.IsDir() && eligibleNode(p) {
+			return p
+		}
+	}
+	if p, err := exec.LookPath("node"); err == nil && eligibleNode(p) {
+		return p
+	}
+	if p := installedNode(); p != "" && eligibleNode(p) {
+		return p
+	}
+	return ""
+}
+
 // ensureNode returns a usable Node >= 22.19, downloading an official build
 // into ~/.prometheus/go-poc/node when the machine has none.
 func ensureNode(ctx context.Context) (string, error) {
