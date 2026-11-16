@@ -39,13 +39,13 @@ jobs:
             goos: darwin
             goarch: arm64
             ext: ""
-            bundles: dmg
+            bundles: app
           - name: macOS Intel
             os: macos-15-intel
             goos: darwin
             goarch: amd64
             ext: ""
-            bundles: dmg
+            bundles: app
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -135,6 +135,7 @@ jobs:
             chmod +x "$APP/Contents/MacOS/"*
             # An unsigned/ad-hoc-broken bundle is reported by Gatekeeper as
             # "damaged". Re-sign everything after the resources were copied.
+            codesign --force --sign - "$APP/Contents/Resources/bin/HelixAgent"
             codesign --force --deep --sign - "$APP"
             codesign --verify --deep --strict "$APP"
             rm -f "$OUT/installers/"*.dmg
