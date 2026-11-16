@@ -26,3 +26,5 @@ server-go/build-artifacts/
 # Keep the bundled plugin host sources the desktop runs; only its node_modules is ignored.
 !server-go/node/plugin-host/dist/
 !server-go/node/plugin-host/dist/**
+!server-go/desktop-shell/src-tauri/bin/
+!server-go/desktop-shell/src-tauri/bin/.gitkeep
