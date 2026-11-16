@@ -676,7 +676,7 @@ export function Sidebar({ target, onDisconnect }: { target: BackendTarget; onDis
 			</nav>
 
 			<div className="flex items-center justify-between border-t hairline px-4 py-2.5 text-xs text-ink-500">
-				<span className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden" title={target.httpBase}>
+				<span className="flex min-w-0 flex-1 items-center gap-1.5" title={target.httpBase}>
 					<span className={clsx("size-1.5 shrink-0 rounded-full", conn === "open" ? "bg-moss-400" : "animate-breathe bg-ember-400")} />
 					<PlatformSwitcher target={target} />
 					<button type="button" onClick={() => openSettings("general")} className="shrink-0 font-mono text-[11px] text-ink-600 hover:text-ink-300" title={t("about")}>
