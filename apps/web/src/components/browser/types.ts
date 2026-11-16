@@ -1,5 +1,5 @@
 // Mirror of plugins/browser/src/types.ts (the app cannot import server code). Keep the two in step.
-export type BrowserMode = "headless" | "window";
+export type BrowserMode = "headless" | "window" | "system";
 
 export interface DialogInfo {
 	type: "alert" | "confirm" | "prompt" | "beforeunload";
@@ -102,6 +102,8 @@ export type ViewMessage =
 
 /** Mirror of plugins/browser/src/settings.ts. */
 export interface BrowserSettings {
+	/** Chrome DevTools port used by the "system" mode. */
+	debugPort: number;
 	executablePath: string;
 	mode: BrowserMode;
 	searchUrl: string;

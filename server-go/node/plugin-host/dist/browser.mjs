@@ -439,6 +439,10 @@ var CdpConnection = class {
     this.closers.add(fn);
     return () => this.closers.delete(fn);
   }
+  close() {
+    this.shutdown("closed");
+    this.out.end();
+  }
   shutdown(reason) {
     if (this.closed) return;
     this.closed = true;
@@ -690,11 +694,16 @@ async function launchBrowser(o, dataDir, timeoutMs = 3e4) {
   }
 }
 async function closeBrowser(l) {
-  if (l.proc.exitCode !== null) return;
-  const gone = new Promise((done) => l.proc.once("exit", () => done()));
+  if (l.attached) {
+    l.conn.close();
+    return;
+  }
+  if (!l.proc || l.proc.exitCode !== null) return;
+  const proc = l.proc;
+  const gone = new Promise((done) => proc.once("exit", () => done()));
   await l.conn.send("Browser.close", {}, void 0, 3e3).catch(() => {
   });
-  const timer = setTimeout(() => groupKill(l.proc), 4e3);
+  const timer = setTimeout(() => groupKill(proc), 4e3);
   await gone;
   clearTimeout(timer);
 }
@@ -1532,7 +1541,7 @@ var BrowserCore = class {
       ...this.error ? { error: this.error } : {},
       mode: this.mode,
       ...found ? { browser: { kind: found.kind, path: found.path, product: this.product } } : {},
-      missing: !found,
+      missing: this.mode === "system" ? false : !found,
       canInstall: !guestInfo() && !!cftPlatform(),
       ...guestInfo() ? { guest: true, nativeInstall: { runtime: GUEST_RUNTIME } } : {},
       ...UNSUPPORTED_HERE ? { unsupported: UNSUPPORTED_HERE } : {},
@@ -1568,6 +1577,10 @@ var BrowserCore = class {
     if (UNSUPPORTED_HERE && !s.executablePath) throw new UserFacingError(UNSUPPORTED_HERE);
     const guest = guestInfo();
     this.mode = guest ? "headless" : s.mode;
+    if (this.mode === "system") {
+      await this.attach(s.debugPort);
+      return;
+    }
     const found = this.locate();
     this.found = found;
     if (!found) {
@@ -1615,11 +1628,50 @@ var BrowserCore = class {
       throw new UserFacingError(`\u6D4F\u89C8\u5668\u542F\u52A8\u5931\u8D25\uFF1A${this.error}`);
     }
   }
+  /** Attach to an already-running Chrome over its DevTools port. The connection stays open. */
+  async attach(port) {
+    this.status = "starting";
+    this.error = void 0;
+    this.changed();
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/json/version`, { signal: AbortSignal.timeout(5e3) });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const meta = await res.json();
+      if (!meta.webSocketDebuggerUrl) throw new Error("\u8C03\u8BD5\u7AEF\u53E3\u6CA1\u6709\u8FD4\u56DE WebSocket \u5730\u5740");
+      const conn = await connectWebSocket(meta.webSocketDebuggerUrl);
+      const version = await conn.send("Browser.getVersion", {});
+      const userAgent = version.userAgent ?? "";
+      this.launched = { conn, userAgent, product: version.product ?? meta.Browser ?? "Chrome", attached: true };
+      this.product = version.product ?? meta.Browser ?? "Chrome";
+      this.rawUa = userAgent;
+      this.ua = userAgent;
+      conn.on((e) => this.onEvent(e));
+      await conn.send("Target.setDiscoverTargets", { discover: true });
+      await conn.send("Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: false, flatten: true });
+      const existing = await conn.send("Target.getTargets", {});
+      for (const target of existing.targetInfos ?? []) {
+        if (target.type === "page") await conn.send("Target.attachToTarget", { targetId: target.targetId, flatten: true }).catch(() => {
+        });
+      }
+      this.status = "running";
+      this.changed();
+      await this.waitFirstTab();
+      this.updateScreencast();
+    } catch (err) {
+      this.status = "error";
+      this.error = err instanceof Error ? err.message : String(err);
+      this.changed();
+      throw new UserFacingError(
+        `\u8FDE\u63A5\u7CFB\u7EDF Chrome \u5931\u8D25\uFF08\u8C03\u8BD5\u7AEF\u53E3 ${port}\uFF09\uFF1A${this.error}\u3002\u8BF7\u5148\u7528 --remote-debugging-port=${port} \u542F\u52A8 Chrome\uFF0C\u6216\u53D6\u6D88\u201C\u4F7F\u7528\u7CFB\u7EDF\u6D4F\u89C8\u5668\u201D\u4F7F\u7528\u5185\u7F6E\u6D4F\u89C8\u5668\u3002`
+      );
+    }
+  }
   async waitFirstTab() {
     for (let i = 0; i < 50 && !this.activeId; i++) await new Promise((r) => setTimeout(r, 100));
     if (!this.activeId) await this.newTab("about:blank");
   }
   async restoreTabs() {
+    if (this.launched?.attached) return;
     let pending = this.pendingUrls;
     this.pendingUrls = void 0;
     if (!pending && this.deps.settings().restoreTabs) {
@@ -2878,7 +2930,8 @@ function sanitizeSettings(raw) {
   const lang = str2(r.lang, 35);
   const out = {
     executablePath: str2(r.executablePath),
-    mode: r.mode === "headless" || r.mode === "window" ? r.mode : void 0,
+    mode: r.mode === "headless" || r.mode === "window" || r.mode === "system" ? r.mode : void 0,
+    debugPort: num2(r.debugPort, 1, 65535),
     searchUrl: searchUrl === void 0 ? void 0 : /^https?:\/\//i.test(searchUrl) ? searchUrl : void 0,
     proxy: proxy === void 0 ? void 0 : proxy === "" || /^(https?|socks[45]?):\/\/[^\s]+$/i.test(proxy) ? proxy : void 0,
     idleMinutes: num2(r.idleMinutes, 0, 24 * 60),
@@ -3130,7 +3183,7 @@ var index_default = definePlugin({
       const next = await store.update((s) => ({ settings: { ...sanitizeSettings(s.settings), ...sanitizeSettings(p.settings) } }));
       saved = sanitizeSettings(next.settings);
       const cur = settings();
-      if (browser.running && (cur.executablePath !== prev.executablePath || cur.proxy !== prev.proxy || cur.lang !== prev.lang || cur.downloadDir !== prev.downloadDir)) await browser.setMode(browser.mode, true);
+      if (browser.running && (cur.executablePath !== prev.executablePath || cur.debugPort !== prev.debugPort || cur.proxy !== prev.proxy || cur.lang !== prev.lang || cur.downloadDir !== prev.downloadDir)) await browser.setMode(browser.mode, true);
       else if (cur.mode !== prev.mode) await browser.setMode(cur.mode);
       else if (cur.mobile !== prev.mobile) await browser.reapplyViewport();
       else if (cur.quality !== prev.quality || cur.maxFps !== prev.maxFps) await browser.activeTab?.restartScreencast();

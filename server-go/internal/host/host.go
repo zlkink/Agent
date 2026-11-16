@@ -812,7 +812,7 @@ func (h *Host) endRun(s *Session) {
 	h.broadcast(map[string]any{"type": "sessions.changed"})
 	h.persist()
 	if next != nil {
-		go h.runPrompt(s, next.Text)
+		go h.runPrompt(s, next.Text, next.Images)
 	}
 }
 
@@ -902,7 +902,7 @@ func (h *Host) runCompaction(s *Session, reason string) {
 	h.event(s.ID, end)
 }
 
-func (h *Host) runPrompt(s *Session, text string) {
+func (h *Host) runPrompt(s *Session, text string, images ...[]any) {
 	s.mu.Lock()
 	if s.Streaming {
 		s.mu.Unlock()
@@ -963,7 +963,26 @@ func (h *Host) runPrompt(s *Session, text string) {
 	}
 
 	now := time.Now().UnixMilli()
-	user := map[string]any{"role": "user", "content": text, "timestamp": now}
+	var media []any
+	if len(images) > 0 {
+		media = images[0]
+	}
+	userContent := any(text)
+	if len(media) > 0 {
+		parts := []any{}
+		if text != "" {
+			parts = append(parts, map[string]any{"type": "text", "text": text})
+		}
+		for _, raw := range media {
+			m := asMap(raw)
+			data, mime := str(m["data"]), str(m["mimeType"])
+			if data != "" && mime != "" {
+				parts = append(parts, map[string]any{"type": "image", "data": data, "mimeType": mime})
+			}
+		}
+		userContent = parts
+	}
+	user := map[string]any{"role": "user", "content": userContent, "timestamp": now}
 	s.appendMessage(user)
 	h.event(s.ID, map[string]any{"type": "agent_start"})
 	h.event(s.ID, map[string]any{"type": "turn_start"})
@@ -980,7 +999,7 @@ func (h *Host) runPrompt(s *Session, text string) {
 	var usage map[string]any
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
-	err := sc.Prompt(ctx, text, turnCtx, func(raw json.RawMessage) error {
+	err := sc.PromptWithImages(ctx, text, turnCtx, media, func(raw json.RawMessage) error {
 		var ev struct {
 			Type    string          `json:"type"`
 			Text    string          `json:"text"`
@@ -1572,11 +1591,11 @@ func (h *Host) dispatch(method string, raw json.RawMessage) (any, error) {
 			return nil, fmt.Errorf("sessionNotFound")
 		}
 		text := str(p["text"])
-		if strings.TrimSpace(text) == "" {
+		images := asList(p["images"])
+		if strings.TrimSpace(text) == "" && len(images) == 0 {
 			return nil, fmt.Errorf("empty prompt")
 		}
 		delivery := str(p["delivery"])
-		images := asList(p["images"])
 		s.mu.Lock()
 		busy := s.Streaming
 		if busy {
@@ -1597,7 +1616,7 @@ func (h *Host) dispatch(method string, raw json.RawMessage) (any, error) {
 			}
 			return map[string]any{"disposition": "queued"}, nil
 		}
-		go h.runPrompt(s, text)
+		go h.runPrompt(s, text, images)
 		return map[string]any{"disposition": "started"}, nil
 
 	case "chat.abort":

@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { defineMessages, useT } from "../lib/i18n.ts";
 import { pluginCall, toast, useStore } from "../lib/store.ts";
 import { Badge, Button, Dialog, Empty, Field, Input, PageHeader, Select } from "./ui.tsx";
+import { browserCall } from "./browser/useBrowser.ts";
 
 const M = defineMessages({
 	zh: {
@@ -47,6 +48,9 @@ const M = defineMessages({
 		ops: "可用操作",
 		writeBadge: "写",
 		cat: "类别",
+		systemBrowser: "系统浏览器（Chrome 调试端口）",
+		systemBrowserHint: "勾选后浏览器工具连接你当前运行的 Chrome，而不是内置浏览器。需要先用 --remote-debugging-port=9222 启动 Chrome。",
+		debugPort: "调试端口",
 	},
 	en: {
 		title: "Connectors",
@@ -87,6 +91,9 @@ const M = defineMessages({
 		ops: "Operations",
 		writeBadge: "write",
 		cat: "Category",
+		systemBrowser: "System browser (Chrome debug port)",
+		systemBrowserHint: "Use your running Chrome for browser tools instead of the built-in browser. Start Chrome with --remote-debugging-port=9222 first.",
+		debugPort: "Debug port",
 	},
 });
 
@@ -130,6 +137,8 @@ export function ConnectorsView() {
 	const [list, setList] = useState<Connection[]>([]);
 	const [adding, setAdding] = useState(false);
 	const [busy, setBusy] = useState<string | null>(null);
+	const [systemBrowser, setSystemBrowser] = useState(false);
+	const [debugPort, setDebugPort] = useState(9222);
 
 	const load = useCallback(async () => {
 		const [p, c] = await Promise.all([pluginCall<ProviderInfo[]>("connectors", "providers"), pluginCall<Connection[]>("connectors", "list")]);
@@ -139,6 +148,20 @@ export function ConnectorsView() {
 	useEffect(() => {
 		void load();
 	}, [load]);
+	useEffect(() => {
+		void browserCall<{ settings: { mode: string; debugPort?: number } }>("state")
+			.then((r) => {
+				setSystemBrowser(r.settings.mode === "system");
+				setDebugPort(r.settings.debugPort ?? 9222);
+			})
+			.catch(() => {});
+	}, []);
+
+	const setSystemBrowserMode = async (on: boolean, port = debugPort) => {
+		setSystemBrowser(on);
+		setDebugPort(port);
+		await browserCall("settings.set", { settings: { mode: on ? "system" : "headless", debugPort: port } }).catch(() => {});
+	};
 
 	const byId = (id: string) => providers.find((p) => p.id === id);
 
@@ -175,6 +198,29 @@ export function ConnectorsView() {
 				}
 			/>
 			<div className="min-h-0 flex-1 overflow-y-auto p-4 @3xl:p-6">
+				<div className="mb-4 rounded-xl border border-ink-800 bg-ink-900/60 p-4">
+					<label className="flex items-start gap-2.5">
+						<input type="checkbox" className="mt-0.5" checked={systemBrowser} onChange={(e) => void setSystemBrowserMode(e.target.checked)} />
+						<span className="min-w-0">
+							<span className="block text-sm font-medium text-ink-100">{t("systemBrowser")}</span>
+							<span className="mt-1 block text-xs leading-relaxed text-ink-500">{t("systemBrowserHint")}</span>
+						</span>
+					</label>
+					{systemBrowser && (
+						<label className="mt-3 flex items-center gap-2 text-xs text-ink-400">
+							{t("debugPort")}
+							<input
+								type="number"
+								min={1}
+								max={65535}
+								value={debugPort}
+								onChange={(e) => setDebugPort(Number(e.target.value) || 9222)}
+								onBlur={() => void setSystemBrowserMode(true, debugPort)}
+								className="w-24 rounded-md border border-ink-700 bg-transparent px-2 py-1 font-mono text-xs text-ink-200"
+							/>
+						</label>
+					)}
+				</div>
 				{list.length === 0 ? (
 					<Empty icon={<Plug className="size-5" />} title={t("emptyTitle")}>
 						{t("emptyBody")}

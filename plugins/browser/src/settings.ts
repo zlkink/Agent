@@ -4,6 +4,8 @@ export interface BrowserSettings {
 	/** Empty: find one automatically. */
 	executablePath: string;
 	mode: BrowserMode;
+	/** Chrome DevTools port used by the "system" mode. */
+	debugPort: number;
 	/** `%s` is replaced by the query. */
 	searchUrl: string;
 	/** http://host:port or socks5://host:port; empty for direct. */
@@ -59,7 +61,8 @@ export function sanitizeSettings(raw: unknown): Partial<BrowserSettings> {
 	const lang = str(r.lang, 35);
 	const out: Partial<BrowserSettings> = {
 		executablePath: str(r.executablePath),
-		mode: r.mode === "headless" || r.mode === "window" ? r.mode : undefined,
+		mode: r.mode === "headless" || r.mode === "window" || r.mode === "system" ? r.mode : undefined,
+		debugPort: num(r.debugPort, 1, 65535),
 		searchUrl: searchUrl === undefined ? undefined : /^https?:\/\//i.test(searchUrl) ? searchUrl : undefined,
 		proxy: proxy === undefined ? undefined : proxy === "" || /^(https?|socks[45]?):\/\/[^\s]+$/i.test(proxy) ? proxy : undefined,
 		idleMinutes: num(r.idleMinutes, 0, 24 * 60),

@@ -131,6 +131,11 @@ export class CdpConnection {
 		return () => this.closers.delete(fn);
 	}
 
+	close(): void {
+		this.shutdown("closed");
+		this.out.end();
+	}
+
 	shutdown(reason: string): void {
 		if (this.closed) return;
 		this.closed = true;

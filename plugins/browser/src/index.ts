@@ -88,7 +88,7 @@ export default definePlugin({
 			const next = await store.update((s) => ({ settings: { ...sanitizeSettings(s.settings), ...sanitizeSettings(p.settings) } }));
 			saved = sanitizeSettings(next.settings);
 			const cur = settings();
-			if (browser.running && (cur.executablePath !== prev.executablePath || cur.proxy !== prev.proxy || cur.lang !== prev.lang || cur.downloadDir !== prev.downloadDir)) await browser.setMode(browser.mode, true);
+			if (browser.running && (cur.executablePath !== prev.executablePath || cur.debugPort !== prev.debugPort || cur.proxy !== prev.proxy || cur.lang !== prev.lang || cur.downloadDir !== prev.downloadDir)) await browser.setMode(browser.mode, true);
 			else if (cur.mode !== prev.mode) await browser.setMode(cur.mode);
 			else if (cur.mobile !== prev.mobile) await browser.reapplyViewport();
 			else if (cur.quality !== prev.quality || cur.maxFps !== prev.maxFps) await browser.activeTab?.restartScreencast();

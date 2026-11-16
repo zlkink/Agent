@@ -1,6 +1,6 @@
 // Shapes that go to the app UI (mirrored in apps/web/src/components/browser/types.ts, which cannot import server code).
 
-export type BrowserMode = "headless" | "window";
+export type BrowserMode = "headless" | "window" | "system";
 
 export interface DialogInfo {
 	type: "alert" | "confirm" | "prompt" | "beforeunload";

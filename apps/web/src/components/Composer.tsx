@@ -726,7 +726,13 @@ export function Composer({ newChat = false }: { newChat?: boolean }) {
 	};
 
 	const onPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-		const pasted = [...e.clipboardData.files];
+		let pasted = [...e.clipboardData.files];
+		if (!pasted.length) {
+			pasted = [...e.clipboardData.items]
+				.filter((item) => item.kind === "file")
+				.map((item) => item.getAsFile())
+				.filter((file): file is File => !!file);
+		}
 		if (!pasted.length) return;
 		// Screenshots arrive as files with no text; leave ordinary text pastes alone.
 		e.preventDefault();

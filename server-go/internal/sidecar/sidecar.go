@@ -119,10 +119,17 @@ func (c *Client) readStderr(r io.Reader) {
 // the sidecar emits `done` or `error`. turnContext is injected through the
 // sidecar's UserPromptSubmit hook.
 func (c *Client) Prompt(ctx context.Context, text, turnContext string, onEvent func(json.RawMessage) error) error {
+	return c.PromptWithImages(ctx, text, turnContext, nil, onEvent)
+}
+
+func (c *Client) PromptWithImages(ctx context.Context, text, turnContext string, images []any, onEvent func(json.RawMessage) error) error {
 	id := c.seq.Add(1)
 	params := map[string]any{"text": text}
 	if turnContext != "" {
 		params["context"] = turnContext
+	}
+	if len(images) > 0 {
+		params["images"] = images
 	}
 	line, err := json.Marshal(map[string]any{
 		"id":     id,

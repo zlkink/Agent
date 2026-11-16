@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, extname, join } from "node:path";
 import type { CdpConnection, CdpEvent } from "./cdp.ts";
-import { CdpSession } from "./cdp.ts";
+import { CdpSession, connectWebSocket } from "./cdp.ts";
 import { GUEST_RUNTIME, guestInfo } from "./guest.ts";
 import { closeBrowser, type FoundBrowser, type Launched, launchBrowser, locateBrowser } from "./chrome.ts";
 import { cftExecutable, cftPlatform, type InstallProgress, installChrome } from "./install.ts";
@@ -158,7 +158,7 @@ export class BrowserCore implements TabHost {
 			...(this.error ? { error: this.error } : {}),
 			mode: this.mode,
 			...(found ? { browser: { kind: found.kind, path: found.path, product: this.product } } : {}),
-			missing: !found,
+			missing: this.mode === "system" ? false : !found,
 			canInstall: !guestInfo() && !!cftPlatform(),
 			...(guestInfo() ? { guest: true, nativeInstall: { runtime: GUEST_RUNTIME } } : {}),
 			...(UNSUPPORTED_HERE ? { unsupported: UNSUPPORTED_HERE } : {}),
@@ -200,6 +200,10 @@ export class BrowserCore implements TabHost {
 		const guest = guestInfo();
 		// The phone's browser has no window to show.
 		this.mode = guest ? "headless" : s.mode;
+		if (this.mode === "system") {
+			await this.attach(s.debugPort);
+			return;
+		}
 		const found = this.locate();
 		this.found = found;
 		if (!found) {
@@ -248,6 +252,44 @@ export class BrowserCore implements TabHost {
 		}
 	}
 
+	/** Attach to an already-running Chrome over its DevTools port. The connection stays open. */
+	private async attach(port: number): Promise<void> {
+		this.status = "starting";
+		this.error = undefined;
+		this.changed();
+		try {
+			const res = await fetch(`http://127.0.0.1:${port}/json/version`, { signal: AbortSignal.timeout(5000) });
+			if (!res.ok) throw new Error(`HTTP ${res.status}`);
+			const meta = (await res.json()) as { webSocketDebuggerUrl?: string; Browser?: string };
+			if (!meta.webSocketDebuggerUrl) throw new Error("调试端口没有返回 WebSocket 地址");
+			const conn = await connectWebSocket(meta.webSocketDebuggerUrl);
+			const version = (await conn.send("Browser.getVersion", {})) as { product?: string; userAgent?: string };
+			const userAgent = version.userAgent ?? "";
+			this.launched = { conn, userAgent, product: version.product ?? meta.Browser ?? "Chrome", attached: true };
+			this.product = version.product ?? meta.Browser ?? "Chrome";
+			this.rawUa = userAgent;
+			this.ua = userAgent;
+			conn.on((e) => this.onEvent(e));
+			await conn.send("Target.setDiscoverTargets", { discover: true });
+			await conn.send("Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: false, flatten: true });
+			const existing = (await conn.send("Target.getTargets", {})) as { targetInfos?: { targetId: string; type: string }[] };
+			for (const target of existing.targetInfos ?? []) {
+				if (target.type === "page") await conn.send("Target.attachToTarget", { targetId: target.targetId, flatten: true }).catch(() => {});
+			}
+			this.status = "running";
+			this.changed();
+			await this.waitFirstTab();
+			this.updateScreencast();
+		} catch (err) {
+			this.status = "error";
+			this.error = err instanceof Error ? err.message : String(err);
+			this.changed();
+			throw new UserFacingError(
+				`连接系统 Chrome 失败（调试端口 ${port}）：${this.error}。请先用 --remote-debugging-port=${port} 启动 Chrome，或取消“使用系统浏览器”使用内置浏览器。`,
+			);
+		}
+	}
+
 	private async waitFirstTab(): Promise<void> {
 		// The start page attaches by itself; it counts once it is set up and on screen.
 		for (let i = 0; i < 50 && !this.activeId; i++) await new Promise((r) => setTimeout(r, 100));
@@ -255,6 +297,8 @@ export class BrowserCore implements TabHost {
 	}
 
 	private async restoreTabs(): Promise<void> {
+		// The user's own tabs are already there; never create/restore tabs in their browser.
+		if (this.launched?.attached) return;
 		let pending = this.pendingUrls;
 		this.pendingUrls = undefined;
 		if (!pending && this.deps.settings().restoreTabs) {

@@ -19,6 +19,9 @@ const M = defineMessages({
 		headless: "在面板中（推荐）",
 		window: "独立窗口 + 面板同步",
 		windowHint: "独立窗口只能在运行 RamiCore 的这台电脑上看到，适合手动登录、过验证码。",
+		system: "使用系统 Chrome（调试端口）",
+		systemHint: "连接已经用 --remote-debugging-port 启动的 Chrome，直接操作你当前的浏览器；未勾选时使用内置浏览器。",
+		debugPort: "调试端口",
 		search: "搜索引擎",
 		custom: "自定义",
 		searchUrl: "搜索地址（%s 为关键词）",
@@ -58,6 +61,9 @@ const M = defineMessages({
 		headless: "In the panel (recommended)",
 		window: "Separate window + panel",
 		windowHint: "The separate window only shows on the machine running RamiCore; handy for logging in by hand or solving a captcha.",
+		system: "Use system Chrome (debug port)",
+		systemHint: "Attach to a Chrome started with --remote-debugging-port and drive your current browser. Unchecked keeps the built-in browser.",
+		debugPort: "Debug port",
 		search: "Search engine",
 		custom: "Custom",
 		searchUrl: "Search URL (%s is the query)",
@@ -143,11 +149,24 @@ export function SettingsPopover({ settings, state, onSave, onClose }: { settings
 			<div className="space-y-3">
 				<h3 className="text-sm font-semibold">{t("settings")}</h3>
 				{local && !state.guest && (
-					<Row label={t("display")} hint={settings.mode === "window" ? t("windowHint") : undefined}>
+					<Row label={t("display")} hint={settings.mode === "window" ? t("windowHint") : settings.mode === "system" ? t("systemHint") : undefined}>
 						<Select value={settings.mode} onChange={(e) => void onSave({ mode: e.target.value as BrowserSettings["mode"] })} className="py-1.5 text-[13px]">
 							<option value="headless">{t("headless")}</option>
 							<option value="window">{t("window")}</option>
+							<option value="system">{t("system")}</option>
 						</Select>
+					</Row>
+				)}
+				{settings.mode === "system" && (
+					<Row label={t("debugPort")} hint={t("systemHint")}>
+						<Input
+							type="number"
+							min={1}
+							max={65535}
+							value={settings.debugPort}
+							onChange={(e) => void onSave({ debugPort: Number(e.target.value) || 9222 })}
+							className="py-1.5 font-mono text-xs"
+						/>
 					</Row>
 				)}
 				<Row label={t("search")}>

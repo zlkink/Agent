@@ -259,7 +259,7 @@ async function handle(msg) {
   }
 }
 
-function onPrompt(text, context) {
+function onPrompt(text, context, images = []) {
   if (busy) {
     emit({ type: 'error', message: 'a prompt is already running' });
     return;
@@ -269,9 +269,16 @@ function onPrompt(text, context) {
   sawTextDelta = false;
   seenTools.clear();
   ensureQuery();
+  const parts = [];
+  if (text) parts.push({ type: 'text', text });
+  for (const img of images) {
+    const data = String(img?.data ?? '');
+    const mimeType = String(img?.mimeType ?? '');
+    if (data && mimeType) parts.push({ type: 'image', source: { type: 'base64', media_type: mimeType, data } });
+  }
   queue.push({
     type: 'user',
-    message: { role: 'user', content: text },
+    message: { role: 'user', content: parts.length === 1 && parts[0].type === 'text' ? text : parts },
     parent_tool_use_id: null,
   });
   loop();
@@ -327,7 +334,7 @@ rl.on('line', (line) => {
     return;
   }
   if (msg.method === 'prompt') {
-    onPrompt(String(msg.params?.text ?? ''), String(msg.params?.context ?? ''));
+    onPrompt(String(msg.params?.text ?? ''), String(msg.params?.context ?? ''), Array.isArray(msg.params?.images) ? msg.params.images : []);
   } else if (msg.method === 'set_model') {
     const model = String(msg.params?.model ?? '');
     if (model) {

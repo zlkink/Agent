@@ -81,10 +81,12 @@ export interface LaunchOptions {
 const usesWs = (o: LaunchOptions) => !!o.guest || o.transport === "ws";
 
 export interface Launched {
-	proc: ChildProcess;
+	proc?: ChildProcess;
 	conn: CdpConnection;
 	userAgent: string;
 	product: string;
+	/** Connected to an already-running Chrome over its debug port; stopping only detaches. */
+	attached?: boolean;
 }
 
 export function launchArgs(o: LaunchOptions): string[] {
@@ -233,10 +235,15 @@ export async function launchBrowser(o: LaunchOptions, dataDir: string, timeoutMs
 
 /** Close politely, then make sure. */
 export async function closeBrowser(l: Launched): Promise<void> {
-	if (l.proc.exitCode !== null) return;
-	const gone = new Promise<void>((done) => l.proc.once("exit", () => done()));
+	if (l.attached) {
+		l.conn.close();
+		return;
+	}
+	if (!l.proc || l.proc.exitCode !== null) return;
+	const proc = l.proc;
+	const gone = new Promise<void>((done) => proc.once("exit", () => done()));
 	await l.conn.send("Browser.close", {}, undefined, 3000).catch(() => {});
-	const timer = setTimeout(() => groupKill(l.proc), 4000);
+	const timer = setTimeout(() => groupKill(proc), 4000);
 	await gone;
 	clearTimeout(timer);
 }
