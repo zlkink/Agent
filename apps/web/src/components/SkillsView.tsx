@@ -9,8 +9,8 @@ import { Badge, Button, Empty, Field, Input, PageHeader, Textarea } from "./ui.t
 
 const M = defineMessages({
 	zh: {
-		scopeBuiltin: "Prometheus 内置",
-		scopePrometheus: "Prometheus 技能库",
+		scopeBuiltin: "RamiCore 内置",
+		scopePrometheus: "RamiCore 技能库",
 		scopeUser: "用户（~/.pi/agent/skills）",
 		scopeProject: "项目（.pi/skills）",
 		title: "技能",
@@ -27,7 +27,7 @@ const M = defineMessages({
 		noDescription: "（无描述）",
 		path: "路径",
 		readOnlyHint: "该技能由 PI 的技能文件管理，请直接编辑上述文件。",
-		builtinHint: "Prometheus 自带的技能，让模型了解这个应用本身。平时只有描述会进入上下文，正文在相关时才被读取。每次启动会恢复为随版本内容，不可编辑，可停用。",
+		builtinHint: "RamiCore 自带的技能，让模型了解这个应用本身。平时只有描述会进入上下文，正文在相关时才被读取。每次启动会恢复为随版本内容，不可编辑，可停用。",
 		saved: "已保存技能 {name}",
 		confirmDelete: "删除技能「{name}」？",
 		deleted: "已删除技能 {name}",
@@ -53,7 +53,7 @@ const M = defineMessages({
 	},
 	en: {
 		scopeBuiltin: "Built in",
-		scopePrometheus: "Prometheus skills",
+		scopePrometheus: "RamiCore skills",
 		scopeUser: "User (~/.pi/agent/skills)",
 		scopeProject: "Project (.pi/skills)",
 		title: "Skills",
@@ -70,7 +70,7 @@ const M = defineMessages({
 		noDescription: "(No description)",
 		path: "Path",
 		readOnlyHint: "This skill is managed by PI's skill files. Edit the file above directly.",
-		builtinHint: "Ships with Prometheus so the model knows about the app itself. Only the description sits in context; the body is read when relevant. Restored to the shipped text on every start, so it is read-only, but you can disable it.",
+		builtinHint: "Ships with RamiCore so the model knows about the app itself. Only the description sits in context; the body is read when relevant. Restored to the shipped text on every start, so it is read-only, but you can disable it.",
 		saved: "Saved skill {name}",
 		confirmDelete: "Delete skill \"{name}\"?",
 		deleted: "Deleted skill {name}",

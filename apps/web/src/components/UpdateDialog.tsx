@@ -6,7 +6,7 @@ import { Button } from "./ui.tsx";
 const M = defineMessages({
 	zh: {
 		heading: "发现新版本",
-		title: "Prometheus {v} 可用",
+		title: "RamiCore {v} 可用",
 		hint: "更新会重启应用，并同时更新、重启本机服务端；进行中的任务将被中断。",
 		remoteHint: "仅更新本客户端并重启应用；当前连接的远程服务器不会被更新，需由其管理员自行升级。",
 		androidHint: "将打开下载链接，下载完成后点击安装即可覆盖更新（数据保留）。若提示「签名不一致」，需要先卸载旧版本，本机模式的数据会丢失。",
@@ -21,7 +21,7 @@ const M = defineMessages({
 	},
 	en: {
 		heading: "Update available",
-		title: "Prometheus {v} is available",
+		title: "RamiCore {v} is available",
 		hint: "Updating restarts the app and updates and restarts the local server; running tasks will be interrupted.",
 		remoteHint: "Only this client is updated and restarted; the connected remote server is not updated and must be upgraded by its administrator.",
 		androidHint: "Opens the download link; when it finishes, tap the file to install over the current app (your data is kept). If Android says the signature does not match, uninstall the old version first, which erases local-mode data.",

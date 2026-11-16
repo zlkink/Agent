@@ -223,7 +223,7 @@ export function App() {
 	}, []);
 
 	useEffect(() => {
-		document.title = title ? `${title} · Prometheus` : "Prometheus";
+		document.title = title ? `${title} · RamiCore` : "RamiCore";
 	}, [title]);
 
 	if (target === undefined) return <div className="forge-bg h-full" />;

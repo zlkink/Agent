@@ -106,7 +106,7 @@ interface ProviderInfo {
 	category: string;
 	description: string;
 	auth: { kind: Kind; help?: string; label?: string }[];
-	/** Auth kinds whose OAuth app ships with Prometheus, so no client ID is asked for. */
+	/** Auth kinds whose OAuth app ships with RamiCore, so no client ID is asked for. */
 	builtin?: string[];
 	fields: Record<string, FieldSpec[]>;
 	operations: { name: string; description: string; access: "read" | "write" }[];

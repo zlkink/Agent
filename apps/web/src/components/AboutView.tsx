@@ -26,7 +26,7 @@ const M = defineMessages({
 		copied: "已复制",
 		repo: "开源仓库",
 		license: "许可证",
-		openSource: "Prometheus 是开源项目（AGPL-3.0）：可以自己部署、修改、再分发。",
+		openSource: "RamiCore 是开源项目（AGPL-3.0）：可以自己部署、修改、再分发。",
 		starCta: "给它一颗 Star",
 		starred: "已经 Star 了",
 		starHint: "它如果帮上了忙，Star 是最实在的支持方式——能让还在找这类工具的人看到它。",
@@ -47,7 +47,7 @@ const M = defineMessages({
 		copied: "Copied",
 		repo: "Repository",
 		license: "License",
-		openSource: "Prometheus is open source (AGPL-3.0): self-host it, change it, pass it on.",
+		openSource: "RamiCore is open source (AGPL-3.0): self-host it, change it, pass it on.",
 		starCta: "Give it a star",
 		starred: "Starred",
 		starHint: "If it helped, a star is the most useful way to say thanks — it helps the next person find it.",
@@ -67,7 +67,7 @@ export function AboutView() {
 	const client = __APP_VERSION__;
 	const server = info?.version;
 	const differs = Boolean(server) && server !== client;
-	const summary = `Prometheus ${client}${server ? ` (server ${server}, PI ${info?.piVersion})` : ""} · ${info?.platform ?? navigator.platform}`;
+	const summary = `RamiCore ${client}${server ? ` (server ${server}, PI ${info?.piVersion})` : ""} · ${info?.platform ?? navigator.platform}`;
 
 	// One request for the count, on open. Nothing is polled and nothing is cached, so a stale number never shows.
 	useEffect(() => {

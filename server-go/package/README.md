@@ -1,10 +1,10 @@
-# HelixAgent
+# RamiCore
 
-Go host for the Prometheus agent UI. This package contains:
+Go host for the RamiCore agent UI. This package contains:
 
 ```text
-HelixAgent.exe          Go host (HTTP/WS + agents + tools)
-web/                    the React UI built from Prometheus
+RamiCore.exe          Go host (HTTP/WS + agents + tools)
+web/                    the React UI built from RamiCore
 node/agent-host/        official Claude Agent SDK sidecar + sdk.mjs
 node/plugin-host/       TypeScript plugin bridge (bundled plugins)
 ```
@@ -20,7 +20,7 @@ of downloading silently; install Node under **Settings → Runtimes**, then reop
 the app. Common macOS locations (Homebrew, `/usr/local/bin`, nvm, `~/.local/bin`)
 are searched automatically.
 
-A gateway is optional: without one, HelixAgent uses the Claude Code CLI's own
+A gateway is optional: without one, RamiCore uses the Claude Code CLI's own
 login. Add a gateway in Settings at any time.
 
 PI is optional. Claude Code, Codex and the normal tools work without it; only the
@@ -31,18 +31,18 @@ the host, so nothing is bundled in this package.
 
 ## Run
 
-Double-click `HelixAgent Desktop.exe`. It starts the native window and runs the
+Double-click `RamiCore Desktop.exe`. It starts the native window and runs the
 Go host as its sidecar; no scripts are needed.
 
 Browser mode is optional, for debugging or embedding:
 
 ```bat
-HelixAgent.exe -serve -addr 127.0.0.1:17420 -web web -allow-write
+RamiCore.exe -serve -addr 127.0.0.1:17420 -web web -allow-write
 ```
 
 Then open <http://127.0.0.1:17420/>.
 
-The host reads the Prometheus config from `%USERPROFILE%\.prometheus\config.json`
+The host reads the RamiCore config from `%USERPROFILE%\.prometheus\config.json`
 (gateways, API keys). Use the UI's Settings page to add a gateway if the file is
 missing. Data and sessions stay under `%USERPROFILE%\.prometheus\go-poc\`.
 
@@ -59,8 +59,8 @@ The release build is ad-hoc signed, not notarized with a paid Developer ID.
 If Gatekeeper still refuses the downloaded app, run once:
 
 ```bash
-xattr -cr "/Applications/HelixAgent.app"
-open "/Applications/HelixAgent.app"
+xattr -cr "/Applications/RamiCore.app"
+open "/Applications/RamiCore.app"
 ```
 
 ## Requirements
@@ -70,7 +70,7 @@ open "/Applications/HelixAgent.app"
 - Node.js 22.19+ on `PATH`; otherwise the first launch downloads it as described
   above.
 - The Claude Agent SDK, LanceDB and the TypeScript plugin host are included.
-- Optional: Codex CLI or `opencode` on `PATH` (or in the Prometheus agents
+- Optional: Codex CLI or `opencode` on `PATH` (or in the RamiCore agents
   directory) for those runtimes. They only light up in the agent menu when the
   CLI is actually present and answers `--version`.
 
@@ -103,12 +103,12 @@ add, several at a time. Existing names are skipped.
 
 ## Flags
 
-Browser mode accepts arguments on HelixAgent.exe directly, e.g.:
+Browser mode accepts arguments on RamiCore.exe directly, e.g.:
 
 ```bat
-HelixAgent.exe -serve -web web -model group/deepseek
-HelixAgent.exe -serve -web web -token my-secret-token
-HelixAgent.exe -serve -web web -native
+RamiCore.exe -serve -web web -model group/deepseek
+RamiCore.exe -serve -web web -token my-secret-token
+RamiCore.exe -serve -web web -native
 ```
 
 Useful flags: `-addr`, `-web`, `-model`, `-token`, `-native`, `-allow-write`,
@@ -118,4 +118,4 @@ Useful flags: `-addr`, `-web`, `-model`, `-token`, `-native`, `-allow-write`,
 
 - `assistant_ask` works in any chat, not only delegated runs.
 - The plugin host is started automatically from `node/plugin-host`.
-- Agent update detection is available with `HelixAgent.exe -agents`.
+- Agent update detection is available with `RamiCore.exe -agents`.

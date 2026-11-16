@@ -308,7 +308,7 @@ export function TitleBar({ onToggleSidebar, bare }: { onToggleSidebar?: () => vo
 			)}
 			<span className="flex items-center gap-1.5 pr-2 pl-1" data-tauri-drag-region>
 				<BrandFlame live={Boolean(session?.isStreaming)} />
-				<span className="pointer-events-none font-display text-sm font-semibold tracking-tight max-sm:hidden">Prometheus</span>
+				<span className="pointer-events-none font-display text-sm font-semibold tracking-tight max-sm:hidden">RamiCore</span>
 			</span>
 			{!bare && <span className="h-4 w-px bg-ink-700" />}
 			<div className="flex min-w-0 flex-1 items-center gap-2 self-stretch px-1" data-tauri-drag-region>

@@ -11,9 +11,9 @@ import { Button, Flame } from "./ui.tsx";
 const M = defineMessages({
 	zh: {
 		title: "选一个智能体开始",
-		intro: "Prometheus 不再强制自带 PI Agent，它和 Claude Code、Codex 等一样，是可选的智能体引擎。现在一个都还不能用，请至少安装一个（默认选中 PI），之后随时可以在 设置 → Agent 里增减。",
+		intro: "RamiCore 不再强制自带 PI Agent，它和 Claude Code、Codex 等一样，是可选的智能体引擎。现在一个都还不能用，请至少安装一个（默认选中 PI），之后随时可以在 设置 → Agent 里增减。",
 		pi: "PI Agent",
-		piDesc: "Prometheus 默认的智能体引擎，支持全部功能（约 70 MB，通过 npm 安装）",
+		piDesc: "RamiCore 默认的智能体引擎，支持全部功能（约 70 MB，通过 npm 安装）",
 		install: "安装并开始",
 		installing: "正在安装…",
 		retry: "重试",
@@ -25,9 +25,9 @@ const M = defineMessages({
 	},
 	en: {
 		title: "Pick an agent to get started",
-		intro: "Prometheus no longer forces the PI Agent on you: it is an optional agent engine like Claude Code or Codex. None of them is usable yet, so install at least one (PI is preselected). You can add or remove agents any time under Settings -> Agents.",
+		intro: "RamiCore no longer forces the PI Agent on you: it is an optional agent engine like Claude Code or Codex. None of them is usable yet, so install at least one (PI is preselected). You can add or remove agents any time under Settings -> Agents.",
 		pi: "PI Agent",
-		piDesc: "Prometheus' default agent engine with every feature (about 70 MB, installed with npm)",
+		piDesc: "RamiCore' default agent engine with every feature (about 70 MB, installed with npm)",
 		install: "Install and start",
 		installing: "Installing…",
 		retry: "Retry",

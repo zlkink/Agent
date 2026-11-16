@@ -7,14 +7,14 @@ import { Button } from "./ui.tsx";
 
 const M = defineMessages({
 	zh: {
-		lancedb: "向量检索需要 LanceDB 组件，安装包不再自带它（约 {n} MB，通过 npm 安装到 Prometheus 自己的目录，装好立即可用）。没装时知识库只能建库、不能做向量检索。",
+		lancedb: "向量检索需要 LanceDB 组件，安装包不再自带它（约 {n} MB，通过 npm 安装到 RamiCore 自己的目录，装好立即可用）。没装时知识库只能建库、不能做向量检索。",
 		"claude-agent-sdk": "Claude Code 需要 Claude Agent SDK 组件，安装包不再自带它（约 {n} MB）。",
 		install: "安装",
 		installing: "安装中，请稍候…",
 		noNpm: "找不到 npm，无法一键安装：请先安装 Node.js。",
 	},
 	en: {
-		lancedb: "Vector search needs the LanceDB component, which the installer no longer carries (about {n} MB, installed with npm into Prometheus' own folder and usable right away). Without it you can create knowledge bases but not search them by vector.",
+		lancedb: "Vector search needs the LanceDB component, which the installer no longer carries (about {n} MB, installed with npm into RamiCore' own folder and usable right away). Without it you can create knowledge bases but not search them by vector.",
 		"claude-agent-sdk": "Claude Code needs the Claude Agent SDK component, which the installer no longer carries (about {n} MB).",
 		install: "Install",
 		installing: "Installing, please wait…",

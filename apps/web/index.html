@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#1c1814" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <title>Prometheus</title>
+    <title>RamiCore</title>
     <script>
       // Shows startup errors on screen: in an old WebView a script failure otherwise leaves only the dark window background.
       (function () {
@@ -15,7 +15,7 @@
           shown = true;
           var d = document.createElement("pre");
           d.style.cssText = "position:fixed;inset:0;margin:0;padding:24px;overflow:auto;white-space:pre-wrap;background:#1c1814;color:#f2c9a0;font:13px/1.5 ui-monospace,Menlo,monospace;z-index:99999";
-          d.textContent = ["Prometheus failed to start", msg, navigator.userAgent].join(String.fromCharCode(10, 10));
+          d.textContent = ["RamiCore failed to start", msg, navigator.userAgent].join(String.fromCharCode(10, 10));
           (document.body || document.documentElement).appendChild(d);
         }
         // The stylesheet is wrapped in cascade layers (Safari 15.4+); without them every style is dropped and the UI is unusable.
@@ -23,7 +23,7 @@
           if (typeof CSSLayerBlockRule !== "undefined") return;
           var d = document.createElement("div");
           d.style.cssText = "position:fixed;left:0;right:0;top:0;padding:16px 20px;background:#7a2e0e;color:#fff;font:14px/1.5 -apple-system,Helvetica,sans-serif;z-index:99999";
-          d.textContent = "This system's web engine is too old to display Prometheus correctly (needs Safari 15.4 or newer). On macOS 10.15 open Apple menu > About This Mac > Software Update and install the latest Safari update, then restart Prometheus. Engine: " + navigator.userAgent;
+          d.textContent = "This system's web engine is too old to display RamiCore correctly (needs Safari 15.4 or newer). On macOS 10.15 open Apple menu > About This Mac > Software Update and install the latest Safari update, then restart RamiCore. Engine: " + navigator.userAgent;
           document.body.appendChild(d);
         });
         window.addEventListener("error", function (e) { show((e.message || "error") + (e.filename ? String.fromCharCode(10) + e.filename + ":" + e.lineno + ":" + e.colno : "")); });

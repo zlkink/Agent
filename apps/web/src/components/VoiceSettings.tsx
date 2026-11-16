@@ -9,7 +9,7 @@ const M = defineMessages({
 	zh: {
 		title: "语音输入",
 		subtitle: "把说的话转成文字填进输入框。需要一个支持语音转文字的网关",
-		off: "语音插件已停用。到「Prometheus 插件」里重新启用后即可使用",
+		off: "语音插件已停用。到「RamiCore 插件」里重新启用后即可使用",
 		gateway: "网关",
 		pick: "选择网关",
 		model: "识别模型",
@@ -27,7 +27,7 @@ const M = defineMessages({
 	en: {
 		title: "Voice input",
 		subtitle: "Turn speech into text in the input box. Needs a gateway that can transcribe audio",
-		off: "The voice plugin is switched off. Re-enable it under Prometheus Plugins",
+		off: "The voice plugin is switched off. Re-enable it under RamiCore Plugins",
 		gateway: "Gateway",
 		pick: "Choose a gateway",
 		model: "Transcription model",

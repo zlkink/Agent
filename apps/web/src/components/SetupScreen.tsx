@@ -9,7 +9,7 @@ import { Button, Flame } from "./ui.tsx";
 const M = defineMessages({
 	zh: {
 		title: "先装好 Node.js",
-		intro: "为了让安装包保持小巧，Prometheus 不再自带 Node.js，首次使用时在这里一键安装。只需要做一次。装好后再选择要用的智能体（PI、Claude Code、Codex 等）。",
+		intro: "为了让安装包保持小巧，RamiCore 不再自带 Node.js，首次使用时在这里一键安装。只需要做一次。装好后再选择要用的智能体（PI、Claude Code、Codex 等）。",
 		node: "Node.js 22",
 		nodeDesc: "后端的运行环境，含 npm（约 35 MB）",
 		done: "已就绪",
@@ -23,7 +23,7 @@ const M = defineMessages({
 	},
 	en: {
 		title: "Install Node.js first",
-		intro: "To keep the installer small, Prometheus no longer ships Node.js. Install it here in one click the first time you use it; it only has to be done once. Afterwards you choose which agent to use (PI, Claude Code, Codex, ...).",
+		intro: "To keep the installer small, RamiCore no longer ships Node.js. Install it here in one click the first time you use it; it only has to be done once. Afterwards you choose which agent to use (PI, Claude Code, Codex, ...).",
 		node: "Node.js 22",
 		nodeDesc: "Runs the backend, includes npm (about 35 MB)",
 		done: "Ready",

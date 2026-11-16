@@ -9,7 +9,7 @@ import { Badge, Button, Dialog, Empty, PageHeader, Textarea } from "./ui.tsx";
 
 const M = defineMessages({
 	zh: {
-		title: "Prometheus 插件",
+		title: "RamiCore 插件",
 		subtitle: "扩展本项目自身：网关、知识库、工具、命令、面板。PI 扩展包请到“PI 插件市场”安装",
 		empty: "没有已加载的插件",
 		externalNote: "在 Claude Code / Codex 下部分不可用：",
@@ -45,7 +45,7 @@ const M = defineMessages({
 		stateBuiltin: "应用自带，不可停用",
 	},
 	en: {
-		title: "Prometheus Plugins",
+		title: "RamiCore Plugins",
 		subtitle: "Extend this app itself: gateways, knowledge, tools, commands, panels. For PI packages, use the PI Marketplace",
 		empty: "No plugins loaded",
 		externalNote: "Partly unavailable under Claude Code / Codex: ",
@@ -97,7 +97,7 @@ function GenerateDialog({ onClose }: { onClose: () => void }) {
 		// The composer picks this up from the shared editor channel, so the user can adjust it before sending.
 		useStore.setState({
 			editorText: {
-				text: `Use the prometheus_plugin_install tool to build a Prometheus plugin for me, and install it so it works without a restart. What I want:\n\n${idea.trim()}`,
+				text: `Use the prometheus_plugin_install tool to build a RamiCore plugin for me, and install it so it works without a restart. What I want:\n\n${idea.trim()}`,
 				nonce: Date.now(),
 			},
 		});

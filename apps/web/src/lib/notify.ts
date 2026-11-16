@@ -63,5 +63,5 @@ export function notifyTurnDone(sessionName: string): void {
 	const p = usePrefs.getState();
 	if (!p.notifyOnDone) return;
 	if (p.notifyBackgroundOnly && !document.hidden && document.hasFocus()) return;
-	void sendNotification("Prometheus", TEXT[p.lang](sessionName || "Prometheus"));
+	void sendNotification("RamiCore", TEXT[p.lang](sessionName || "RamiCore"));
 }

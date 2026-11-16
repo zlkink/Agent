@@ -4,8 +4,8 @@ import { useEffect } from "react";
 import { defineMessages, useT } from "../lib/i18n.ts";
 
 const M = defineMessages({
-	zh: { show: "显示主窗口", hide: "隐藏主窗口", panel: "工作面板", quit: "退出 Prometheus" },
-	en: { show: "Show main window", hide: "Hide main window", panel: "Work panel", quit: "Quit Prometheus" },
+	zh: { show: "显示主窗口", hide: "隐藏主窗口", panel: "工作面板", quit: "退出 RamiCore" },
+	en: { show: "Show main window", hide: "Hide main window", panel: "Work panel", quit: "Quit RamiCore" },
 });
 
 async function invoke(cmd: string, args?: Record<string, unknown>): Promise<void> {

@@ -303,7 +303,8 @@ fn node_env(prepend: Vec<PathBuf>, append: Vec<PathBuf>) -> Vec<(&'static str, s
 
 #[cfg(not(target_os = "android"))]
 fn go_sidecar(app: &tauri::AppHandle) -> Option<PathBuf> {
-    let exe_name = if cfg!(windows) { "HelixAgent.exe" } else { "HelixAgent" };
+    let exe_name = if cfg!(windows) { "RamiCore.exe" } else { "RamiCore" };
+    let legacy_name = if cfg!(windows) { "HelixAgent.exe" } else { "HelixAgent" };
     if let Some(p) = std::env::var_os("HELIXAGENT_SERVER_BIN") {
         let p = PathBuf::from(p);
         if p.is_file() {
@@ -314,14 +315,18 @@ fn go_sidecar(app: &tauri::AppHandle) -> Option<PathBuf> {
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
             candidates.push(dir.join(exe_name));
+            candidates.push(dir.join(legacy_name));
             candidates.push(dir.join("bin").join(exe_name));
-            candidates.push(dir.join("HelixAgent").join(exe_name));
-            candidates.push(dir.join("..").join("HelixAgent").join(exe_name));
+            candidates.push(dir.join("bin").join(legacy_name));
+            candidates.push(dir.join("RamiCore").join(exe_name));
+            candidates.push(dir.join("..").join("RamiCore").join(exe_name));
         }
     }
     if let Ok(dir) = app.path().resource_dir() {
         candidates.push(dir.join(exe_name));
+        candidates.push(dir.join(legacy_name));
         candidates.push(dir.join("bin").join(exe_name));
+        candidates.push(dir.join("bin").join(legacy_name));
         candidates.push(dir.join("server").join(exe_name));
     }
     candidates
@@ -332,7 +337,7 @@ fn go_sidecar(app: &tauri::AppHandle) -> Option<PathBuf> {
 
 #[cfg(not(target_os = "android"))]
 fn launch_target(app: &tauri::AppHandle) -> Result<Launch, String> {
-    // Packaged HelixAgent: the Go host is the sidecar; Node is no longer required.
+    // Packaged RamiCore: the Go host is the sidecar; Node is no longer required.
     if let Some(bin) = go_sidecar(app) {
         let dir = bin.parent().map(PathBuf::from).unwrap_or_default();
         let web = strip_verbatim(dir.join("web"));
@@ -400,7 +405,7 @@ fn launch_target(app: &tauri::AppHandle) -> Result<Launch, String> {
         });
     }
 
-    let entry = server_entry(app).ok_or("找不到 Prometheus 服务端入口（可设置 PROMETHEUS_SERVER_ENTRY）")?;
+    let entry = server_entry(app).ok_or("找不到 RamiCore 服务端入口（可设置 PROMETHEUS_SERVER_ENTRY）")?;
     // Node.js is the one thing the server cannot start without. The PI agent is optional like any other agent runtime: when it
     // is installed (from the app) the server is told where, and without it the server starts and offers the install.
     let (node, mut prepend, append) = resolve_node(app)?;
@@ -678,7 +683,7 @@ pub fn run() {
         .manage(backend.clone())
         .manage(runtimes::Installs::default())
         .build(tauri::generate_context!())
-        .expect("failed to build Prometheus desktop");
+        .expect("failed to build RamiCore desktop");
 
     app.run(move |_, event| {
         if let RunEvent::Exit = event {

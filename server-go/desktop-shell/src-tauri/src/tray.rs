@@ -153,7 +153,7 @@ fn toggle_panel(app: &AppHandle, anchor: Option<PhysicalPosition<f64>>) {
 
 fn build_panel(app: &AppHandle) -> tauri::Result<()> {
     WebviewWindowBuilder::new(app, PANEL, WebviewUrl::default())
-        .title("Prometheus")
+        .title("RamiCore")
         .inner_size(PANEL_W, PANEL_H)
         .resizable(false)
         .decorations(false)
@@ -168,7 +168,7 @@ fn build_panel(app: &AppHandle) -> tauri::Result<()> {
 
 fn build_menu(app: &AppHandle) -> tauri::Result<()> {
     WebviewWindowBuilder::new(app, TRAYMENU, WebviewUrl::default())
-        .title("Prometheus")
+        .title("RamiCore")
         .inner_size(MENU_W, MENU_H)
         .resizable(false)
         .decorations(false)
@@ -187,7 +187,7 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
     build_menu(app)?;
 
     let mut tray = TrayIconBuilder::with_id("main")
-        .tooltip("Prometheus")
+        .tooltip("RamiCore")
         .show_menu_on_left_click(false)
         .on_tray_icon_event(|tray, event| {
             if let TrayIconEvent::Click { button, button_state: MouseButtonState::Up, position, .. } = event {

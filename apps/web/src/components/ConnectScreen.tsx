@@ -14,9 +14,9 @@ const M = defineMessages({
 		badQr: "二维码不是有效的服务器地址",
 		subtitle: "选择运行方式",
 		local: "本机模式",
-		localDesc: "在这台设备上自动启动 Prometheus 服务，数据保存在本地",
+		localDesc: "在这台设备上自动启动 RamiCore 服务，数据保存在本地",
 		remote: "连接服务器",
-		remoteDesc: "连接到已部署的 Prometheus 服务器",
+		remoteDesc: "连接到已部署的 RamiCore 服务器",
 		starting: "正在启动本机服务…首次启动可能需要数十秒",
 		startFailed: "本机服务启动失败：{e}",
 		unauthorized: "访问令牌无效或缺失",
@@ -24,7 +24,7 @@ const M = defineMessages({
 		token: "访问令牌",
 		tokenHint: "服务器端 PROMETHEUS_TOKEN 的值；仅本机访问时可留空",
 		loginPassword: "登录密码",
-		loginHint: "在运行 Prometheus 的电脑上「设置 → 网络访问」里设置的密码；留空则按访问令牌连接",
+		loginHint: "在运行 RamiCore 的电脑上「设置 → 网络访问」里设置的密码；留空则按访问令牌连接",
 		needPassword: "这台服务器需要登录密码",
 		signingIn: "正在登录…",
 		badUrl: "服务器地址不合法",
@@ -37,9 +37,9 @@ const M = defineMessages({
 		badQr: "That QR code is not a valid server address",
 		subtitle: "Choose how to run",
 		local: "Local mode",
-		localDesc: "Start a Prometheus server on this device automatically; data stays local",
+		localDesc: "Start a RamiCore server on this device automatically; data stays local",
 		remote: "Connect to server",
-		remoteDesc: "Connect to a deployed Prometheus server",
+		remoteDesc: "Connect to a deployed RamiCore server",
 		starting: "Starting the local server… first launch may take a while",
 		startFailed: "Local server failed to start: {e}",
 		unauthorized: "Access token is invalid or missing",
@@ -47,7 +47,7 @@ const M = defineMessages({
 		token: "Access token",
 		tokenHint: "Value of PROMETHEUS_TOKEN on the server; may be empty for loopback-only servers",
 		loginPassword: "Login password",
-		loginHint: "The password set under Settings → Network access on the computer running Prometheus. Leave empty to connect with an access token instead",
+		loginHint: "The password set under Settings → Network access on the computer running RamiCore. Leave empty to connect with an access token instead",
 		needPassword: "This server needs a login password",
 		signingIn: "Signing in…",
 		badUrl: "Invalid server URL",
@@ -155,7 +155,7 @@ export function ConnectScreen({ unauthorized, error, onConnect, onSetup, wantsPa
 				<div className="flex items-center gap-3">
 					<Flame className="size-11" />
 					<div>
-						<h1 className="font-display text-3xl font-semibold tracking-tight">Prometheus</h1>
+						<h1 className="font-display text-3xl font-semibold tracking-tight">RamiCore</h1>
 						<p className="text-sm text-ink-400">{isTauri() ? t("subtitle") : t("webSubtitle")}</p>
 					</div>
 				</div>

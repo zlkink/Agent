@@ -1,7 +1,7 @@
 import { isTauri, loadRemote, passwordLogin, saveMode, saveRemote, saveSameOriginToken, startLocal, targetFromUrl } from "./backend.ts";
 import type { BackendTarget } from "./client.ts";
 
-/** A saved Prometheus server the user can switch to. Lives in this browser/app only; tokens never leave it. */
+/** A saved RamiCore server the user can switch to. Lives in this browser/app only; tokens never leave it. */
 export interface Platform {
 	id: string;
 	name: string;

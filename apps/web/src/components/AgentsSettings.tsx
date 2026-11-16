@@ -18,7 +18,7 @@ const M = defineMessages({
 		install: "一键安装",
 		installing: "安装中…",
 		installDone: "{name} 已安装",
-		installHint: "会把 {pkg} 安装到 Prometheus 自己的目录，并加入这个运行时的 PATH；本机需要能用 npm。",
+		installHint: "会把 {pkg} 安装到 RamiCore 自己的目录，并加入这个运行时的 PATH；本机需要能用 npm。",
 		installNoNpm: "没有安装，也无法在这里一键安装：找不到 npm。请先安装 Node.js，或给这个 Agent 指定已有的可执行文件。",
 		installManual: "没有找到它的命令。请按它自己的说明安装，或在编辑里填写可执行文件的完整路径。",
 		checkUpdates: "检查更新",
@@ -29,10 +29,10 @@ const M = defineMessages({
 		updateTo: "更新到 {v}",
 		updating: "更新中…",
 		updateDone: "{name} 已更新到 {v}，新会话起生效",
-		updateHintPrometheus: "用 npm 把 Prometheus 目录里的这份升级到最新版",
-		updateHintPath: "它不是用 npm 装的，Prometheus 无法替它更新，请用你安装它的方式更新",
+		updateHintPrometheus: "用 npm 把 RamiCore 目录里的这份升级到最新版",
+		updateHintPath: "它不是用 npm 装的，RamiCore 无法替它更新，请用你安装它的方式更新",
 		updateHintNpm: "用 npm 在它所在的位置升级到最新版",
-		updateHintBundled: "当前使用的是 Prometheus 内置的版本。更新会在 Prometheus 自己的目录安装最新版，之后优先使用它",
+		updateHintBundled: "当前使用的是 RamiCore 内置的版本。更新会在 RamiCore 自己的目录安装最新版，之后优先使用它",
 		updateCustom: "使用自定义可执行文件，请自行更新",
 		updateServer: "连接的是外部服务，请在服务所在机器上更新",
 		updateNoPackage: "不是通过 npm 发布的，请按它自己的方式更新",
@@ -40,11 +40,11 @@ const M = defineMessages({
 		version: "版本",
 		sync: "同步会话",
 		syncing: "同步中…",
-		syncTitle: "把这个 Agent 自己保存的工作区和会话同步到 Prometheus",
+		syncTitle: "把这个 Agent 自己保存的工作区和会话同步到 RamiCore",
 		syncDone: "{name}：找到 {found} 个会话，新增 {added} 个，新增 {ws} 个工作区",
 		uninstall: "卸载",
-		confirmUninstall: "删除 Prometheus 为 {name} 安装的命令行工具？机器上其他位置安装的不受影响。",
-		installedAt: "由 Prometheus 安装",
+		confirmUninstall: "删除 RamiCore 为 {name} 安装的命令行工具？机器上其他位置安装的不受影响。",
+		installedAt: "由 RamiCore 安装",
 		oldServer: "已连接的服务器版本较旧，不支持多 Agent 运行时。请把服务器升级到 0.12.0 或更高版本。",
 		piNote: "PI 内置，无需配置；它使用「AI 网关」里配置的模型。",
 		default: "默认",
@@ -77,7 +77,7 @@ const M = defineMessages({
 		serverPerChat: "每个会话一个进程（默认）",
 		serverAttach: "连接已运行的 opencode 服务",
 		serverShared: "启动一个固定端口的共享服务",
-		serverHint: "连接服务时使用该服务自己配置的模型与登录，不能选 Prometheus 网关；Prometheus 工具只对同一台机器上的服务可用。共享服务供所有会话使用，你也可以用 opencode attach 接入同一个服务。",
+		serverHint: "连接服务时使用该服务自己配置的模型与登录，不能选 RamiCore 网关；RamiCore 工具只对同一台机器上的服务可用。共享服务供所有会话使用，你也可以用 opencode attach 接入同一个服务。",
 		serverUrl: "服务地址",
 		serverPort: "端口",
 		serverUser: "用户名",
@@ -113,7 +113,7 @@ const M = defineMessages({
 		install: "Install",
 		installing: "Installing…",
 		installDone: "{name} installed",
-		installHint: "Installs {pkg} into Prometheus' own folder and puts it on this runtime's PATH. npm must be available on this machine.",
+		installHint: "Installs {pkg} into RamiCore' own folder and puts it on this runtime's PATH. npm must be available on this machine.",
 		installNoNpm: "It is not installed and cannot be installed here: npm was not found. Install Node.js, or point this agent at an existing executable.",
 		installManual: "Its command was not found. Install it as its own documentation describes, or enter the full path of the executable under Edit.",
 		checkUpdates: "Check for updates",
@@ -124,10 +124,10 @@ const M = defineMessages({
 		updateTo: "Update to {v}",
 		updating: "Updating…",
 		updateDone: "{name} updated to {v}; new chats use it",
-		updateHintPrometheus: "Upgrades the copy in Prometheus' folder to the latest version with npm",
-		updateHintPath: "It was not installed with npm, so Prometheus cannot update it; update it the way you installed it",
+		updateHintPrometheus: "Upgrades the copy in RamiCore' folder to the latest version with npm",
+		updateHintPath: "It was not installed with npm, so RamiCore cannot update it; update it the way you installed it",
 		updateHintNpm: "Upgrades it with npm where it is installed",
-		updateHintBundled: "The version bundled with Prometheus is in use. Updating installs the latest version into Prometheus' own folder and uses it from then on",
+		updateHintBundled: "The version bundled with RamiCore is in use. Updating installs the latest version into RamiCore' own folder and uses it from then on",
 		updateCustom: "Uses a custom executable; update it yourself",
 		updateServer: "Connects to an external server; update it where the server runs",
 		updateNoPackage: "Not published on npm; update it the way it was installed",
@@ -135,11 +135,11 @@ const M = defineMessages({
 		version: "Version",
 		sync: "Sync chats",
 		syncing: "Syncing…",
-		syncTitle: "Bring the workspaces and chats this agent keeps in its own store into Prometheus",
+		syncTitle: "Bring the workspaces and chats this agent keeps in its own store into RamiCore",
 		syncDone: "{name}: found {found} chats, added {added}, {ws} new workspaces",
 		uninstall: "Uninstall",
-		confirmUninstall: "Remove the CLI that Prometheus installed for {name}? An installation elsewhere on this machine is left alone.",
-		installedAt: "Installed by Prometheus",
+		confirmUninstall: "Remove the CLI that RamiCore installed for {name}? An installation elsewhere on this machine is left alone.",
+		installedAt: "Installed by RamiCore",
 		oldServer: "The connected server is older and has no agent runtimes. Upgrade it to 0.12.0 or later.",
 		piNote: "PI is built in and needs no setup; it uses the models set up under AI Gateways.",
 		default: "Default",
@@ -172,7 +172,7 @@ const M = defineMessages({
 		serverPerChat: "One process per chat (default)",
 		serverAttach: "Connect to a running opencode server",
 		serverShared: "Start one shared server on a fixed port",
-		serverHint: "On a server, chats use the server's own models and login (no Prometheus gateways), and Prometheus tools only work when the server runs on this machine. A shared server serves every chat; you can join it with opencode attach too.",
+		serverHint: "On a server, chats use the server's own models and login (no RamiCore gateways), and RamiCore tools only work when the server runs on this machine. A shared server serves every chat; you can join it with opencode attach too.",
 		serverUrl: "Server URL",
 		serverPort: "Port",
 		serverUser: "Username",
@@ -201,7 +201,7 @@ const M = defineMessages({
 
 const KIND_LABEL = { "claude-code": "claudeCode", codex: "codex", opencode: "opencode", acp: "acp" } as const;
 
-/** The npm package that provides an agent's CLI, when Prometheus can install it. */
+/** The npm package that provides an agent's CLI, when RamiCore can install it. */
 const npmPackage = (a: AgentProfile): string | undefined => agentPreset(a.id)?.npm?.pkg;
 
 /** Splits an argument line on spaces, keeping quoted parts together. */
@@ -338,7 +338,7 @@ export function AgentsSettings() {
 		);
 	};
 
-	/** One quiet line under an agent when Prometheus cannot update it, or the version lookup failed. */
+	/** One quiet line under an agent when RamiCore cannot update it, or the version lookup failed. */
 	const updateNote = (u: AgentUpdateInfo | undefined) => {
 		if (!u) return null;
 		const text = u.error ? t("updateCheckFailed", { error: u.error }) : u.updateAvailable && u.canUpdate === false ? t("updateHintPath") : u.reason === "custom" ? t("updateCustom") : u.reason === "server" ? t("updateServer") : u.reason === "noPackage" ? t("updateNoPackage") : null;

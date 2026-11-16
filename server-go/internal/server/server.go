@@ -64,7 +64,7 @@ func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 		"gateway": s.Gateway,
 		"claude":  s.Claude.Version,
 		"agent":   s.Claude.Path,
-		"host":    "helixagent",
+		"host":    "ramicore",
 	})
 }
 

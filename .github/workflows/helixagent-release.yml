@@ -1,11 +1,11 @@
-name: HelixAgent Release
+name: RamiCore Release
 
 # Cross-platform desktop app + installers, mirroring the original Prometheus
 # release pipeline: GitHub builds every platform, signs nothing it cannot, and
 # attaches installers plus portable archives to the release.
 on:
   push:
-    tags: ["helix-v*"]
+    tags: ["ramicore-v*"]
   workflow_dispatch:
 
 permissions:
@@ -89,7 +89,7 @@ jobs:
           STAGE="server-go/desktop-shell/src-tauri/bin"
           mkdir -p "$STAGE"
           (cd server-go && GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} CGO_ENABLED=0 \
-            go build -trimpath -ldflags "-s -w" -o "desktop-shell/src-tauri/bin/HelixAgent${{ matrix.ext }}" ./cmd/prometheus)
+            go build -trimpath -ldflags "-s -w" -o "desktop-shell/src-tauri/bin/RamiCore${{ matrix.ext }}" ./cmd/prometheus)
 
       - name: Stage web, sidecars and plugin host
         shell: bash
@@ -125,8 +125,8 @@ jobs:
           STAGE="server-go/desktop-shell/src-tauri/bin"
           OUT="server-go/build-artifacts"
           rm -rf "$OUT"
-          mkdir -p "$OUT/installers" "$OUT/portable/HelixAgent"
-          P="$OUT/portable/HelixAgent"
+          mkdir -p "$OUT/installers" "$OUT/portable/RamiCore"
+          P="$OUT/portable/RamiCore"
           TARGET_ROOT="server-go/desktop-shell/src-tauri/target"
           if [ -n "${{ matrix.target }}" ]; then TARGET_ROOT="$TARGET_ROOT/${{ matrix.target }}"; fi
 
@@ -138,11 +138,11 @@ jobs:
           if [ "${RUNNER_OS}" = "macOS" ]; then
             APP="$(find $TARGET_ROOT/release/bundle/macos -maxdepth 1 -name '*.app' | head -n1)"
             test -n "$APP"
-            chmod +x "$APP/Contents/Resources/bin/HelixAgent"
+            chmod +x "$APP/Contents/Resources/bin/RamiCore"
             chmod +x "$APP/Contents/MacOS/"*
             # An unsigned/ad-hoc-broken bundle is reported by Gatekeeper as
             # "damaged". Re-sign everything after the resources were copied.
-            codesign --force --sign - "$APP/Contents/Resources/bin/HelixAgent"
+            codesign --force --sign - "$APP/Contents/Resources/bin/RamiCore"
             codesign --force --deep --sign - "$APP"
             codesign --verify --deep --strict "$APP"
             rm -f "$OUT/installers/"*.dmg
@@ -154,31 +154,31 @@ jobs:
             DMGROOT="$(mktemp -d)"
             cp -R "$APP" "$DMGROOT/"
             ln -s /Applications "$DMGROOT/Applications"
-            hdiutil create -volname "HelixAgent" -srcfolder "$DMGROOT" -ov -format UDZO \
-              "$OUT/installers/HelixAgent_${VERSION}_${ARCH}.dmg"
+            hdiutil create -volname "RamiCore" -srcfolder "$DMGROOT" -ov -format UDZO \
+              "$OUT/installers/RamiCore_${VERSION}_${ARCH}.dmg"
             rm -rf "$DMGROOT"
             # Portable macOS download is the signed .app itself.
             rm -rf "$P"
             mkdir -p "$P"
-            cp -R "$APP" "$P/HelixAgent.app"
+            cp -R "$APP" "$P/RamiCore.app"
             cp server-go/package/README.md "$P/README.md"
           else
-            cp "$STAGE/HelixAgent${{ matrix.ext }}" "$P/"
+            cp "$STAGE/RamiCore${{ matrix.ext }}" "$P/"
             cp -R "$STAGE/web" "$P/web"
             cp -R "$STAGE/node" "$P/node"
             cp server-go/package/README.md "$P/README.md"
             DESKTOP="$TARGET_ROOT/release/helixagent-desktop${{ matrix.ext }}"
             if [ ! -f "$DESKTOP" ]; then
-              DESKTOP="$TARGET_ROOT/release/HelixAgent${{ matrix.ext }}"
+              DESKTOP="$TARGET_ROOT/release/RamiCore${{ matrix.ext }}"
             fi
-            cp "$DESKTOP" "$P/HelixAgent Desktop${{ matrix.ext }}"
+            cp "$DESKTOP" "$P/RamiCore Desktop${{ matrix.ext }}"
           fi
 
           SUFFIX="${{ matrix.name }}"
           if [ "${RUNNER_OS}" = "Windows" ]; then
-            powershell -NoProfile -Command "Compress-Archive -Path '$P' -DestinationPath '$OUT/HelixAgent-$SUFFIX.zip'"
+            powershell -NoProfile -Command "Compress-Archive -Path '$P' -DestinationPath '$OUT/RamiCore-$SUFFIX.zip'"
           else
-            tar -C "$OUT/portable" -czf "$OUT/HelixAgent-$SUFFIX.tar.gz" HelixAgent
+            tar -C "$OUT/portable" -czf "$OUT/RamiCore-$SUFFIX.tar.gz" RamiCore
           fi
           rm -rf "$OUT/portable"
           ls -lh "$OUT" "$OUT/installers"
@@ -192,7 +192,7 @@ jobs:
 
   release:
     name: Publish release
-    if: startsWith(github.ref, 'refs/tags/helix-v')
+    if: startsWith(github.ref, 'refs/tags/ramicore-v')
     needs: build
     runs-on: ubuntu-latest
     steps:
@@ -204,7 +204,7 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          name: HelixAgent ${{ github.ref_name }}
+          name: RamiCore ${{ github.ref_name }}
           generate_release_notes: true
           files: |
             artifacts/*.zip

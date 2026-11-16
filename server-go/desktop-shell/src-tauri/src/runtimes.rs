@@ -478,7 +478,7 @@ fn extract_zip(file: &Path, out: &Path, strip: usize, em: &Emitter2, cancel: &At
 fn client() -> Result<reqwest::Client, String> {
     // reqwest is built without a bundled TLS backend; install the ring provider once (a second install is a harmless Err).
     let _ = rustls::crypto::ring::default_provider().install_default();
-    let builder = reqwest::Client::builder().user_agent(concat!("Prometheus/", env!("CARGO_PKG_VERSION"))).connect_timeout(Duration::from_secs(15));
+    let builder = reqwest::Client::builder().user_agent(concat!("RamiCore/", env!("CARGO_PKG_VERSION"))).connect_timeout(Duration::from_secs(15));
     // rustls-platform-verifier needs a JNI setup that Tauri does not do on Android (it aborts the process), so
     // trust the system's own CA directory directly instead.
     #[cfg(target_os = "android")]

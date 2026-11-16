@@ -4,8 +4,8 @@ import { defineMessages, useT } from "../lib/i18n.ts";
 import { Button } from "./ui.tsx";
 
 const M = defineMessages({
-	zh: { hint: "把二维码对准取景框", denied: "没有相机权限。请在系统设置里允许 Prometheus 使用相机后重试", noCamera: "无法打开相机", cancel: "取消" },
-	en: { hint: "Point the camera at the QR code", denied: "Camera permission was denied. Allow camera access for Prometheus in system settings and try again", noCamera: "Cannot open the camera", cancel: "Cancel" },
+	zh: { hint: "把二维码对准取景框", denied: "没有相机权限。请在系统设置里允许 RamiCore 使用相机后重试", noCamera: "无法打开相机", cancel: "取消" },
+	en: { hint: "Point the camera at the QR code", denied: "Camera permission was denied. Allow camera access for RamiCore in system settings and try again", noCamera: "Cannot open the camera", cancel: "Cancel" },
 });
 
 /** Full-screen camera view; calls onResult once with the first QR text found. The camera is released on unmount. */

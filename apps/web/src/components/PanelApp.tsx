@@ -84,7 +84,7 @@ export function PanelApp() {
 		<div className="forge-bg flex h-full flex-col overflow-hidden rounded-xl border border-ink-700">
 			<header className="flex items-center gap-2 border-b hairline px-4 py-3">
 				<Flame className="size-5" />
-				<span className="font-display text-sm font-semibold tracking-tight">Prometheus</span>
+				<span className="font-display text-sm font-semibold tracking-tight">RamiCore</span>
 				<span className="ml-auto font-mono text-[10.5px] tracking-widest text-ink-500 uppercase">{t("title")}</span>
 			</header>
 			<div className="min-h-0 flex-1 overflow-y-auto p-2">

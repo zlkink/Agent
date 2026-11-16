@@ -9,7 +9,7 @@ const M = defineMessages({
 	en: { openLink: "Open in default browser", copyLink: "Copy link", copy: "Copy", failed: "Could not open the link, copied to clipboard: {u}" },
 });
 
-/** Opens a link outside Prometheus (system default browser) so the app itself never navigates away. */
+/** Opens a link outside RamiCore (system default browser) so the app itself never navigates away. */
 export async function openExternal(url: string): Promise<void> {
 	let u: URL;
 	try {

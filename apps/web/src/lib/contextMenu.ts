@@ -12,7 +12,7 @@ interface MenuState {
 
 export const useContextMenu = create<MenuState>(() => ({ menu: null }));
 
-/** Shows Prometheus' own context menu at a viewport position. */
+/** Shows RamiCore' own context menu at a viewport position. */
 export function showContextMenu(x: number, y: number, items: ContextMenuItem[]): void {
 	useContextMenu.setState({ menu: { x, y, items } });
 }

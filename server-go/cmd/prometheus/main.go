@@ -226,7 +226,7 @@ func main() {
 	fmt.Printf("PROMETHEUS_READY %d\n", actualPort)
 	_ = os.Stdout.Sync()
 	go func() {
-		log.Printf("HelixAgent listening on http://%s  (model=%s, gateway=%s, claude=%s, web=%s)",
+		log.Printf("RamiCore listening on http://%s  (model=%s, gateway=%s, claude=%s, web=%s)",
 			ln.Addr().String(), s.model, s.gateway, s.claude.Version, api.WebRoot)
 		if err := httpServer.Serve(ln); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("serve: %v", err)

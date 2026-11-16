@@ -10,7 +10,7 @@ import { Badge, Button, Empty, Input, PageHeader } from "./ui.tsx";
 const M = defineMessages({
 	zh: {
 		title: "PI 插件市场",
-		subtitle: "安装 PI 扩展包（工具、技能、提示词模板与主题），与 PI TUI 共享。这不同于“Prometheus 插件”，后者用于扩展本项目自身",
+		subtitle: "安装 PI 扩展包（工具、技能、提示词模板与主题），与 PI TUI 共享。这不同于“RamiCore 插件”，后者用于扩展本项目自身",
 		installedTab: "已安装",
 		discoverTab: "发现",
 		search: "搜索扩展包…",
@@ -60,7 +60,7 @@ const M = defineMessages({
 	},
 	en: {
 		title: "PI Marketplace",
-		subtitle: "Install PI packages (tools, skills, prompt templates and themes), shared with the PI TUI. Not to be confused with Prometheus plugins, which extend this app itself",
+		subtitle: "Install PI packages (tools, skills, prompt templates and themes), shared with the PI TUI. Not to be confused with RamiCore plugins, which extend this app itself",
 		installedTab: "Installed",
 		discoverTab: "Discover",
 		search: "Search packages…",
