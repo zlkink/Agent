@@ -40,12 +40,6 @@ jobs:
             goarch: arm64
             ext: ""
             bundles: app
-          - name: macOS Intel
-            os: macos-15-intel
-            goos: darwin
-            goarch: amd64
-            ext: ""
-            bundles: app
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4

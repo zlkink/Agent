@@ -60,6 +60,17 @@ func Resolve(id string) (Agent, error) {
 		a.Path = p
 		a.Source = "path"
 	}
+	if a.Path == "" {
+		// GUI launches on macOS get a minimal PATH and the native Claude
+		// installer uses ~/.claude/local, so check the usual places directly.
+		for _, p := range commonPaths(d.bin) {
+			if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
+				a.Path = p
+				a.Source = "path"
+				break
+			}
+		}
+	}
 	if managed := managedPath(d.bin); managed != "" {
 		a.Managed = managed
 		if a.Path == "" {
@@ -71,6 +82,32 @@ func Resolve(id string) (Agent, error) {
 		return a, os.ErrNotExist
 	}
 	return a, nil
+}
+
+func commonPaths(bin string) []string {
+	home := config.Home()
+	userHome, _ := os.UserHomeDir()
+	names := []string{bin, bin + ".cmd", bin + ".exe"}
+	var out []string
+	dirs := []string{
+		filepath.Join(userHome, ".local", "bin"),
+		filepath.Join(userHome, ".claude", "local"),
+		filepath.Join(home, "bin"),
+		filepath.Join(home, "agents"),
+		filepath.Join(home, "agents", "bin"),
+	}
+	if runtime.GOOS != "windows" {
+		dirs = append(dirs, "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin")
+	}
+	for _, dir := range dirs {
+		if dir == "" {
+			continue
+		}
+		for _, name := range names {
+			out = append(out, filepath.Join(dir, name))
+		}
+	}
+	return out
 }
 
 func managedPath(bin string) string {

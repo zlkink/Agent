@@ -348,6 +348,19 @@ fn launch_target(app: &tauri::AppHandle) -> Result<Launch, String> {
         if node_dir.is_dir() {
             parts.push(node_dir);
         }
+        // GUI launches on macOS get a minimal PATH: add the usual Node and
+        // Claude install locations before the inherited PATH.
+        parts.extend(node_dirs());
+        if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) {
+            let home = PathBuf::from(home);
+            parts.push(home.join(".local/bin"));
+            parts.push(home.join(".npm-global/bin"));
+        }
+        #[cfg(target_os = "macos")]
+        {
+            parts.push(PathBuf::from("/opt/homebrew/bin"));
+            parts.push(PathBuf::from("/usr/local/bin"));
+        }
         if let Some(existing) = std::env::var_os("PATH") {
             parts.extend(std::env::split_paths(&existing));
         }
@@ -357,6 +370,9 @@ fn launch_target(app: &tauri::AppHandle) -> Result<Launch, String> {
             std::env::join_paths(parts).unwrap_or_default()
         };
         let mut extra_env: Vec<(String, std::ffi::OsString)> = rt_env;
+        if let Ok((node, _, _)) = resolve_node(app) {
+            extra_env.push(("PROMETHEUS_NODE".to_string(), node.into_os_string()));
+        }
         if sdk.is_file() {
             extra_env.push(("CLAUDE_SDK_PATH".to_string(), sdk.into_os_string()));
         }

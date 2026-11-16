@@ -129,6 +129,11 @@ func eligibleNode(path string) bool {
 // ensureNode returns a usable Node >= 22.19, downloading an official build
 // into ~/.prometheus/go-poc/node when the machine has none.
 func ensureNode(ctx context.Context) (string, error) {
+	if p := strings.TrimSpace(os.Getenv("PROMETHEUS_NODE")); p != "" {
+		if fi, err := os.Stat(p); err == nil && !fi.IsDir() && eligibleNode(p) {
+			return p, nil
+		}
+	}
 	if p, err := exec.LookPath("node"); err == nil && eligibleNode(p) {
 		return p, nil
 	}
