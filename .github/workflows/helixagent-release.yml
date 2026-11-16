@@ -28,18 +28,23 @@ jobs:
             goarch: amd64
             ext: .exe
             bundles: nsis,msi
+            target: ""
           - name: Linux x64
             os: ubuntu-22.04
             goos: linux
             goarch: amd64
             ext: ""
             bundles: deb,appimage
+            target: ""
           - name: macOS Apple Silicon
-            os: macos-latest
+            # GitHub's arm64 macOS runner queue currently cancels jobs without
+            # assigning a runner; build the same arm64 bundle on the Intel image.
+            os: macos-15-intel
             goos: darwin
             goarch: arm64
             ext: ""
             bundles: app
+            target: aarch64-apple-darwin
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -57,6 +62,10 @@ jobs:
           cache: pnpm
 
       - uses: dtolnay/rust-toolchain@stable
+
+      - name: Add Rust target
+        if: matrix.target != ''
+        run: rustup target add ${{ matrix.target }}
 
       - uses: swatinem/rust-cache@v2
         with:
@@ -105,7 +114,9 @@ jobs:
         shell: bash
         working-directory: server-go/desktop-shell
         run: |
-          pnpm dlx @tauri-apps/cli@2 build --config src-tauri/tauri.conf.json --bundles ${{ matrix.bundles }}
+          TARGET_ARG=""
+          if [ -n "${{ matrix.target }}" ]; then TARGET_ARG="--target ${{ matrix.target }}"; fi
+          pnpm dlx @tauri-apps/cli@2 build --config src-tauri/tauri.conf.json --bundles ${{ matrix.bundles }} $TARGET_ARG
 
       - name: Assemble portable package and artifacts
         shell: bash
@@ -116,14 +127,16 @@ jobs:
           rm -rf "$OUT"
           mkdir -p "$OUT/installers" "$OUT/portable/HelixAgent"
           P="$OUT/portable/HelixAgent"
+          TARGET_ROOT="server-go/desktop-shell/src-tauri/target"
+          if [ -n "${{ matrix.target }}" ]; then TARGET_ROOT="$TARGET_ROOT/${{ matrix.target }}"; fi
 
-          find server-go/desktop-shell/src-tauri/target/release/bundle -type f \
+          find $TARGET_ROOT/release/bundle -type f \
             \( -name '*.exe' -o -name '*.msi' -o -name '*.deb' -o -name '*.rpm' \
                -o -name '*.AppImage' -o -name '*.dmg' -o -name '*.app.tar.gz' \) \
             -exec cp -v {} "$OUT/installers/" \;
 
           if [ "${RUNNER_OS}" = "macOS" ]; then
-            APP="$(find server-go/desktop-shell/src-tauri/target/release/bundle/macos -maxdepth 1 -name '*.app' | head -n1)"
+            APP="$(find $TARGET_ROOT/release/bundle/macos -maxdepth 1 -name '*.app' | head -n1)"
             test -n "$APP"
             chmod +x "$APP/Contents/Resources/bin/HelixAgent"
             chmod +x "$APP/Contents/MacOS/"*
@@ -134,7 +147,7 @@ jobs:
             codesign --verify --deep --strict "$APP"
             rm -f "$OUT/installers/"*.dmg
             VERSION="$(node -p "require('./server-go/desktop-shell/src-tauri/tauri.conf.json').version")"
-            ARCH="$(uname -m | sed 's/x86_64/x64/; s/arm64/aarch64/')"
+            ARCH="${{ matrix.goarch }}"; [ "$ARCH" = "amd64" ] && ARCH=x64; [ "$ARCH" = "arm64" ] && ARCH=aarch64
             # hdiutil -srcfolder copies the folder's contents, so stage the .app
             # (plus the usual Applications shortcut) instead of pointing it at
             # the bundle itself; otherwise the DMG has loose executable files.
@@ -154,9 +167,9 @@ jobs:
             cp -R "$STAGE/web" "$P/web"
             cp -R "$STAGE/node" "$P/node"
             cp server-go/package/README.md "$P/README.md"
-            DESKTOP="server-go/desktop-shell/src-tauri/target/release/helixagent-desktop${{ matrix.ext }}"
+            DESKTOP="$TARGET_ROOT/release/helixagent-desktop${{ matrix.ext }}"
             if [ ! -f "$DESKTOP" ]; then
-              DESKTOP="server-go/desktop-shell/src-tauri/target/release/HelixAgent${{ matrix.ext }}"
+              DESKTOP="$TARGET_ROOT/release/HelixAgent${{ matrix.ext }}"
             fi
             cp "$DESKTOP" "$P/HelixAgent Desktop${{ matrix.ext }}"
           fi
