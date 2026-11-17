@@ -1097,7 +1097,7 @@ func (h *Host) runPrompt(s *Session, text string, images ...[]any) {
 		return v
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Minute)
 	defer cancel()
 	err := sc.PromptWithImages(ctx, text, turnCtx, media, func(raw json.RawMessage) error {
 		var ev struct {
@@ -1378,7 +1378,7 @@ func (h *Host) dispatch(method string, raw json.RawMessage) (any, error) {
 	switch method {
 	case "host.info":
 		return map[string]any{
-			"version": "0.30.32-ramicore", "piVersion": h.cfg.PIVersion, "protocol": protocolVersion,
+			"version": "0.30.33-ramicore", "piVersion": h.cfg.PIVersion, "protocol": protocolVersion,
 			"cwd": h.cfg.Cwd, "platform": runtime.GOOS,
 		}, nil
 
@@ -1837,13 +1837,13 @@ func (h *Host) dispatch(method string, raw json.RawMessage) (any, error) {
 			s.mu.Unlock()
 			return nil, fmt.Errorf("message not found")
 		}
+		if s.Streaming {
+			s.mu.Unlock()
+			return nil, fmt.Errorf("上一条回复还在运行，请先停止或稍后再试")
+		}
 		s.messages[idx] = map[string]any{"role": "user", "content": text, "timestamp": time.Now().UnixMilli()}
 		s.messages = s.messages[:idx+1]
-		busy := s.Streaming
 		s.mu.Unlock()
-		if busy {
-			return nil, fmt.Errorf("a prompt is already running")
-		}
 		go h.runPrompt(s, text)
 		return nil, nil
 
@@ -1870,12 +1870,12 @@ func (h *Host) dispatch(method string, raw json.RawMessage) (any, error) {
 			s.mu.Unlock()
 			return nil, fmt.Errorf("no user message to retry")
 		}
-		s.messages = s.messages[:idx]
-		busy := s.Streaming
-		s.mu.Unlock()
-		if busy {
-			return nil, fmt.Errorf("a prompt is already running")
+		if s.Streaming {
+			s.mu.Unlock()
+			return nil, fmt.Errorf("上一条回复还在运行，请先停止或稍后再试")
 		}
+		s.messages = s.messages[:idx]
+		s.mu.Unlock()
 		go h.runPrompt(s, text)
 		return nil, nil
 

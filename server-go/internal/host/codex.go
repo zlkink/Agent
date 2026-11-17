@@ -82,7 +82,7 @@ func (h *Host) runCodexPrompt(s *Session, text string) {
 			args = append(args, "-c", key+`.url=`+strconv.Quote(url))
 		}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, h.cfg.Codex.Path, args...)
 	cmd.Dir = s.Cwd

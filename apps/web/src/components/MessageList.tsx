@@ -243,6 +243,11 @@ function argSummary(name: string, args: Record<string, unknown> | undefined): st
 function ThinkingBlock({ text, live }: { text: string; live: boolean }) {
 	const t = useT(M);
 	const [open, setOpen] = useState(false);
+	const body = useRef<HTMLDivElement>(null);
+	// Long reasoning scrolls inside the block instead of stretching the page forever.
+	useEffect(() => {
+		if (live && open && body.current) body.current.scrollTop = body.current.scrollHeight;
+	}, [text, live, open]);
 	return (
 		<div>
 			<button type="button" onClick={() => setOpen(!open)} className="flex w-full items-center gap-2 rounded-lg px-1 py-1.5 text-xs text-ink-400 transition-colors hover:bg-ink-900/60 hover:text-ink-200">
@@ -252,7 +257,7 @@ function ThinkingBlock({ text, live }: { text: string; live: boolean }) {
 				<ChevronRight className={clsx("ml-auto size-3.5 text-ink-600 transition-transform", open && "rotate-90")} />
 			</button>
 			<Collapse open={open}>
-				<div className="mt-1 ml-5 border-l border-ink-800 py-1 pl-3 text-[13px] leading-relaxed whitespace-pre-wrap text-ink-400 italic">{text}</div>
+				<div ref={body} className="mt-1 ml-5 max-h-[45dvh] overflow-auto rounded border-l border-ink-800 py-1 pl-3 text-[13px] leading-relaxed whitespace-pre-wrap text-ink-400 italic md:max-h-80">{text}</div>
 			</Collapse>
 		</div>
 	);

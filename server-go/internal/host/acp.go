@@ -46,7 +46,7 @@ func (h *Host) runAcpPrompt(s *Session, text string) {
 	s.mu.Unlock()
 
 	staticCtx, turnCtx := h.pluginContext(text, s)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Minute)
 	defer cancel()
 	params := map[string]any{
 		"sessionId": sessionID,

@@ -55,7 +55,7 @@ func (h *Host) runOpenCodePrompt(s *Session, text string) {
 	h.event(s.ID, map[string]any{"type": "message_start", "message": user})
 
 	staticCtx, turnCtx := h.pluginContext(text, s)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Minute)
 	defer cancel()
 	body := map[string]any{
 		"parts": []any{map[string]any{"type": "text", "text": text}},
