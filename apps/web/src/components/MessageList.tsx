@@ -541,6 +541,30 @@ function TurnBody({
 	const t = useT(M);
 	const view = turnPresentation(group.map((g) => g.message), live);
 	const { fold, finalMessage, finalAt, steps } = view;
+	// Hooks must run on every render: a running turn can flip from unfolded to
+	// folded mid-stream, which used to skip these and crash with React #310.
+	const [open, setOpen] = useState(false);
+	const header = useRef<HTMLButtonElement>(null);
+	const anchorTop = useRef<number | null>(null);
+	useLayoutEffect(() => {
+		const before = anchorTop.current;
+		anchorTop.current = null;
+		const el = header.current;
+		if (before == null || !el) return;
+		const pin = () => {
+			const after = el.getBoundingClientRect().top;
+			const delta = after - before;
+			if (Math.abs(delta) < 1) return;
+			const scroller = scrollParent(el);
+			if (scroller) scroller.scrollTop += delta;
+			else window.scrollBy(0, delta);
+		};
+		pin();
+		// Native scroll anchoring (and the list's ResizeObserver) can settle one
+		// frame later; correct once more after it has run.
+		const raf = requestAnimationFrame(pin);
+		return () => cancelAnimationFrame(raf);
+	}, [open]);
 	const render = (mode: BlockMode) =>
 		// In "final" mode only the message that holds the answer is shown; the others would be empty boxes that each add a flex gap.
 		(mode === "final" ? group.slice(finalMessage, finalMessage + 1) : group).map((g, gi) => {
@@ -569,28 +593,6 @@ function TurnBody({
 	const lastAt = group[group.length - 1]?.message.timestamp ?? 0;
 	const elapsed = lastAt > firstAt ? lastAt - firstAt : 0;
 	const duration = elapsed > 0 ? fmtDuration(elapsed) : "";
-	const [open, setOpen] = useState(false);
-	const header = useRef<HTMLButtonElement>(null);
-	const anchorTop = useRef<number | null>(null);
-	useLayoutEffect(() => {
-		const before = anchorTop.current;
-		anchorTop.current = null;
-		const el = header.current;
-		if (before == null || !el) return;
-		const pin = () => {
-			const after = el.getBoundingClientRect().top;
-			const delta = after - before;
-			if (Math.abs(delta) < 1) return;
-			const scroller = scrollParent(el);
-			if (scroller) scroller.scrollTop += delta;
-			else window.scrollBy(0, delta);
-		};
-		pin();
-		// Native scroll anchoring (and the list's ResizeObserver) can settle one
-		// frame later; correct once more after it has run.
-		const raf = requestAnimationFrame(pin);
-		return () => cancelAnimationFrame(raf);
-	}, [open]);
 	return (
 		<div className="flex flex-col gap-2">
 			<button
