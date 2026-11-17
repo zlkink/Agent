@@ -127,11 +127,10 @@ function WorkbenchFold() {
 	);
 }
 
-function TerminalToggle() {
+function TerminalToggle({ cwd }: { cwd: string }) {
 	const t = useT(M);
 	const enabled = useStore((s) => pluginActive(s.plugins, "terminal"));
 	const open = useStore((s) => !s.workbench.collapsed && s.workbench.tabs.some((x) => x.id === s.workbench.active && x.kind === "terminal"));
-	const cwd = useStore((s) => s.session?.cwd ?? "");
 	if (!enabled) return null;
 	return (
 		<button
@@ -147,11 +146,10 @@ function TerminalToggle() {
 	);
 }
 
-function BrowserToggle() {
+function BrowserToggle({ cwd }: { cwd: string }) {
 	const t = useT(M);
 	const enabled = useStore((s) => pluginActive(s.plugins, "browser") && pluginActive(s.plugins, "workbench"));
 	const open = useStore((s) => !s.workbench.collapsed && s.workbench.tabs.some((x) => x.id === s.workbench.active && x.kind === "browser"));
-	const cwd = useStore((s) => s.session?.cwd ?? "");
 	if (!enabled) return null;
 	return (
 		<button
@@ -167,11 +165,10 @@ function BrowserToggle() {
 	);
 }
 
-function FolderToggle() {
+function FolderToggle({ cwd }: { cwd: string }) {
 	const t = useT(M);
 	const enabled = useStore((s) => pluginActive(s.plugins, "folder"));
 	const open = useStore((s) => !s.workbench.collapsed && s.workbench.tabs.some((x) => x.id === s.workbench.active && x.kind === "folder"));
-	const cwd = useStore((s) => s.session?.cwd ?? "");
 	if (!enabled) return null;
 	return (
 		<button
@@ -188,10 +185,9 @@ function FolderToggle() {
 }
 
 /** Hands the workspace folder to the file manager or an installed editor. Only offered when the server is this machine. */
-function OpenInMenu() {
+function OpenInMenu({ path }: { path?: string }) {
 	const t = useT(M);
 	const client = useStore((s) => s.client);
-	const path = useStore((s) => s.workspaces.find((w) => w.id === s.session?.workspaceId)?.path);
 	const local = client ? isLoopbackHost(client.target.httpBase) : false;
 	const { open, setOpen, ref } = usePopover();
 	const [apps, setApps] = useState<{ id: string; label: string }[]>([]);
@@ -231,18 +227,23 @@ function OpenInMenu() {
 
 function SessionTools() {
 	const session = useStore((s) => s.session);
-	if (!session) return null;
+	const workspaces = useStore((s) => s.workspaces);
+	// Tools stay in the title bar on the welcome screen too. Before a
+	// conversation exists they act on the first/selected workspace folder.
+	const workspace = workspaces.find((w) => w.id === session?.workspaceId) ?? workspaces[0];
+	const cwd = session?.cwd || workspace?.path || "";
 	return (
 		<div className="flex items-center gap-1">
-			{Object.entries(session.statuses).map(([k, v]) => (
-				<span key={k} className="hidden rounded-md bg-ink-850 px-2 py-0.5 font-mono text-[11px] text-ink-400 md:inline">
-					{v}
-				</span>
-			))}
-			<OpenInMenu />
-			<FolderToggle />
-			<TerminalToggle />
-			<BrowserToggle />
+			{session &&
+				Object.entries(session.statuses).map(([k, v]) => (
+					<span key={k} className="hidden rounded-md bg-ink-850 px-2 py-0.5 font-mono text-[11px] text-ink-400 md:inline">
+						{v}
+					</span>
+				))}
+			<OpenInMenu path={workspace?.path} />
+			<FolderToggle cwd={cwd} />
+			<TerminalToggle cwd={cwd} />
+			<BrowserToggle cwd={cwd} />
 			<WorkbenchFold />
 			<SubagentToggle />
 		</div>

@@ -1251,7 +1251,7 @@ func (h *Host) dispatch(method string, raw json.RawMessage) (any, error) {
 	switch method {
 	case "host.info":
 		return map[string]any{
-			"version": "0.30.25-ramicore", "piVersion": h.cfg.PIVersion, "protocol": protocolVersion,
+			"version": "0.30.26-ramicore", "piVersion": h.cfg.PIVersion, "protocol": protocolVersion,
 			"cwd": h.cfg.Cwd, "platform": runtime.GOOS,
 		}, nil
 
@@ -1621,7 +1621,10 @@ func (h *Host) dispatch(method string, raw json.RawMessage) (any, error) {
 
 	case "chat.abort":
 		if s := h.session(str(p["sessionId"])); s != nil {
-			h.abortSession(s, true)
+			// Interrupting stops the reply that is running, not the conversation.
+			// Messages already queued stay queued and start as soon as this turn
+			// has settled, so an interrupt never silently drops the user's input.
+			h.abortSession(s, false)
 		}
 		return nil, nil
 
@@ -1942,8 +1945,39 @@ func (h *Host) dispatch(method string, raw json.RawMessage) (any, error) {
 	case "agent.syncSessions":
 		return map[string]any{"found": 0, "added": 0, "workspaces": 0}, nil
 
-	case "agent.install", "agent.uninstall":
-		return nil, fmt.Errorf("installing agent CLIs is not implemented in the Go POC")
+	case "agent.install":
+		id := str(p["agent"])
+		kind := str(p["kind"])
+		if id == "" {
+			id = kind
+		}
+		if kind == "" {
+			kind = id
+		}
+		if kind == "claude-code" {
+			a, err := agents.Resolve(id)
+			if err != nil || a.Path == "" {
+				return nil, fmt.Errorf("Claude Code 未安装：请先用官方安装器或 npm 安装")
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer cancel()
+			cmd := exec.CommandContext(ctx, a.Path, "update")
+			out, err := cmd.CombinedOutput()
+			text := strings.TrimSpace(string(out))
+			if err != nil {
+				if text == "" {
+					text = err.Error()
+				}
+				return nil, fmt.Errorf("Claude Code 更新失败：%s", text)
+			}
+			if v, err := agents.Version(ctx, a.Path); err == nil {
+				a.Version = v
+			}
+			return map[string]any{"ok": true, "version": a.Version, "output": text}, nil
+		}
+		return nil, fmt.Errorf("installing this agent CLI is not implemented; install it with its official installer")
+	case "agent.uninstall":
+		return nil, fmt.Errorf("uninstalling agent CLIs is not implemented in the Go host")
 
 	case "agent.checkUpdates":
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -1961,7 +1995,10 @@ func (h *Host) dispatch(method string, raw json.RawMessage) (any, error) {
 			item := map[string]any{
 				"id": a.ID, "current": a.Version, "latest": a.Latest,
 				"updateAvailable": a.UpdateAvailable, "source": src,
-				"canUpdate": a.Source == "managed",
+				// Claude Code can update itself (`claude update`) no matter how it
+				// was installed, including the native installer. Other CLIs are
+				// only updatable when the managed npm copy is the active one.
+				"canUpdate": a.Source == "managed" || (a.ID == "claude-code" && a.Path != "" && a.Source != "missing"),
 			}
 			if a.Error != "" {
 				item["error"] = a.Error
@@ -2525,10 +2562,12 @@ func (h *Host) dispatch(method string, raw json.RawMessage) (any, error) {
 		return map[string]any{"path": path}, nil
 
 	case "system.apps":
-		return []any{map[string]any{"id": "files", "label": "File Manager"}}, nil
+		return listExternalApps(), nil
 
 	case "system.openIn":
-		_ = openTarget(str(p["path"]))
+		if err := openInExternalApp(str(p["app"]), str(p["path"])); err != nil {
+			return nil, err
+		}
 		return map[string]any{"ok": true}, nil
 
 	case "system.open":

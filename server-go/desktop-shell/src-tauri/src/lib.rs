@@ -400,8 +400,13 @@ fn launch_target(app: &tauri::AppHandle) -> Result<Launch, String> {
             extra_env,
             // Like the original server, run from the user's home, not from the
             // install folder: a working directory inside it would keep the
-            // package locked for updates/deletion.
-            cwd: app.path().home_dir().ok().or_else(|| std::env::current_dir().ok()),
+            // package locked for updates/deletion. The default project folder
+            // shown in the sidebar is ~/RamiCore.
+            cwd: app.path().home_dir().ok().map(|home| {
+                let dir = home.join("RamiCore");
+                let _ = std::fs::create_dir_all(&dir);
+                dir
+            }).or_else(|| std::env::current_dir().ok()),
         });
     }
 

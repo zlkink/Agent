@@ -31,6 +31,7 @@ const M = defineMessages({
 		updateDone: "{name} 已更新到 {v}，新会话起生效",
 		updateHintPrometheus: "用 npm 把 RamiCore 目录里的这份升级到最新版",
 		updateHintPath: "它不是用 npm 装的，RamiCore 无法替它更新，请用你安装它的方式更新",
+		updateHintSelf: "用 Claude Code 自带的更新命令升级当前安装（原生安装也可以用）",
 		updateHintNpm: "用 npm 在它所在的位置升级到最新版",
 		updateHintBundled: "当前使用的是 RamiCore 内置的版本。更新会在 RamiCore 自己的目录安装最新版，之后优先使用它",
 		updateCustom: "使用自定义可执行文件，请自行更新",
@@ -126,6 +127,7 @@ const M = defineMessages({
 		updateDone: "{name} updated to {v}; new chats use it",
 		updateHintPrometheus: "Upgrades the copy in RamiCore folder to the latest version with npm",
 		updateHintPath: "It was not installed with npm, so RamiCore cannot update it; update it the way you installed it",
+		updateHintSelf: "Runs Claude Code's own update command, which also works for the native installer",
 		updateHintNpm: "Upgrades it with npm where it is installed",
 		updateHintBundled: "The version bundled with RamiCore is in use. Updating installs the latest version into RamiCore' own folder and uses it from then on",
 		updateCustom: "Uses a custom executable; update it yourself",
@@ -451,7 +453,7 @@ export function AgentsSettings() {
 											variant="primary"
 											className="px-2.5 py-1 text-xs"
 											disabled={busyId !== null}
-											title={t(updates[a.id]!.source === "prometheus" ? "updateHintPrometheus" : updates[a.id]!.source === "bundled" ? "updateHintBundled" : "updateHintNpm")}
+											title={t(updates[a.id]!.source === "prometheus" ? "updateHintPrometheus" : updates[a.id]!.source === "bundled" ? "updateHintBundled" : a.kind === "claude-code" && updates[a.id]!.source === "path" ? "updateHintSelf" : "updateHintNpm")}
 											onClick={() => void update(a, updates[a.id]!.latest!)}
 										>
 											<ArrowUpCircle className="size-3.5" /> {busyId === a.id ? t("updating") : t("updateTo", { v: updates[a.id]!.latest! })}
