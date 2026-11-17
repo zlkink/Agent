@@ -386,7 +386,21 @@ function useExpanded(id: string) {
 /** How many chats a workspace shows before the "show more" step, so one big folder cannot bury the rest. */
 const PAGE = 8;
 
-function WorkspaceGroup({ w, sessions, activeId, current }: { w: WorkspaceInfo; sessions: SessionSummary[]; activeId?: string; current: boolean }) {
+function WorkspaceGroup({
+	w,
+	sessions,
+	activeId,
+	current,
+	selected,
+	onSelect,
+}: {
+	w: WorkspaceInfo;
+	sessions: SessionSummary[];
+	activeId?: string;
+	current: boolean;
+	selected: boolean;
+	onSelect: () => void;
+}) {
 	const t = useT(M);
 	const [showArchived, setShowArchived] = useState(false);
 	const [limit, setLimit] = useState(PAGE);
@@ -405,8 +419,16 @@ function WorkspaceGroup({ w, sessions, activeId, current }: { w: WorkspaceInfo; 
 
 	return (
 		<div className="mb-1">
-			<div className="group flex items-center gap-1 rounded-lg px-1.5 py-1 hover:bg-ink-850">
-				<button type="button" onClick={() => open.toggle()} className="flex min-w-0 flex-1 items-center gap-1.5 text-left" title={w.path}>
+			<div className={clsx("group flex items-center gap-1 rounded-lg px-1.5 py-1 transition-colors hover:bg-ink-850", selected && "bg-ink-850/80")}>
+				<button
+					type="button"
+					onClick={() => {
+						onSelect();
+						open.toggle();
+					}}
+					className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+					title={w.path}
+				>
 					{open.isOpen ? <ChevronDown className="size-3.5 shrink-0 text-ink-500" /> : <ChevronRight className="size-3.5 shrink-0 text-ink-500" />}
 					<FolderOpen className={clsx("size-4 shrink-0", current ? "text-ember-400" : "text-ink-400")} />
 					<span className="truncate text-[13px] font-medium text-ink-200">{w.name}</span>
@@ -570,6 +592,10 @@ export function Sidebar({ target, onDisconnect }: { target: BackendTarget; onDis
 	const plugins = useStore((s) => s.plugins);
 	const [panels, setPanels] = useState<PanelInfo[]>([]);
 	const [picking, setPicking] = useState(false);
+	const [selectedWorkspace, setSelectedWorkspace] = useState<string | null>(null);
+	useEffect(() => {
+		if (active?.workspaceId) setSelectedWorkspace(active.workspaceId);
+	}, [active?.workspaceId]);
 
 	useEffect(() => {
 		if (conn !== "open") return;
@@ -605,7 +631,12 @@ export function Sidebar({ target, onDisconnect }: { target: BackendTarget; onDis
 				)}
 				<button
 					type="button"
-					onClick={() => void (space === "personal" ? startPersonalChat() : startNewChat())}
+					onClick={() => {
+						if (space === "personal") return void startPersonalChat();
+						const selected = workspaces.find((w) => w.id === selectedWorkspace);
+						if (selected) return void newChatIn(selected);
+						startNewChat();
+					}}
 					className="flex w-full items-center gap-2 rounded-lg border border-ink-700 px-3 py-2 text-sm font-medium text-ink-100 transition-colors hover:border-ember-500/50 hover:bg-ink-850"
 				>
 					<Plus className="size-4 text-ember-400" /> {t("startChat")}
@@ -662,7 +693,15 @@ export function Sidebar({ target, onDisconnect }: { target: BackendTarget; onDis
 					</button>
 				)}
 				{workspaces.map((w) => (
-					<WorkspaceGroup key={w.id} w={w} sessions={grouped.get(w.id) ?? []} activeId={openingId ?? active?.id} current={active?.workspaceId === w.id} />
+					<WorkspaceGroup
+						key={w.id}
+						w={w}
+						sessions={grouped.get(w.id) ?? []}
+						activeId={openingId ?? active?.id}
+						current={active?.workspaceId === w.id}
+						selected={selectedWorkspace === w.id}
+						onSelect={() => setSelectedWorkspace(w.id)}
+					/>
 				))}
 			</div>
 				</>
