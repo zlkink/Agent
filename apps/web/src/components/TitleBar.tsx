@@ -1,7 +1,8 @@
 import clsx from "clsx";
-import { Code, ExternalLink, FolderOpen, FolderTree, Globe, Minus, PanelLeft, PanelRight, PanelRightClose, PanelRightOpen, Square, SquareTerminal, X } from "lucide-react";
+import { Code, ExternalLink, FolderOpen, FolderTree, Globe, Minus, Moon, PanelLeft, PanelRight, PanelRightClose, PanelRightOpen, Square, SquareTerminal, Sun, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { isDesktopShell, isLoopbackHost } from "../lib/backend.ts";
+import { setPrefs, usePrefs } from "../lib/prefs.ts";
 import { localizeError } from "../lib/errors.ts";
 import { defineMessages, useT } from "../lib/i18n.ts";
 import { call, NO_SUBAGENTS, pluginActive, toggleSubagentPanel, toggleWorkbenchKind, toggleWorkbenchPanel, useStore } from "../lib/store.ts";
@@ -35,6 +36,7 @@ const M = defineMessages({
 		minimize: "最小化",
 		maximize: "最大化",
 		close: "关闭",
+		themeToggle: "切换明暗主题",
 		newChat: "新会话",
 		knowledge: "知识库",
 		memory: "记忆",
@@ -52,6 +54,7 @@ const M = defineMessages({
 		minimize: "Minimize",
 		maximize: "Maximize",
 		close: "Close",
+		themeToggle: "Toggle light/dark theme",
 		newChat: "New chat",
 		knowledge: "Knowledge",
 		memory: "Memory",
@@ -246,6 +249,24 @@ function SessionTools() {
 	);
 }
 
+function ThemeToggle() {
+	const t = useT(M);
+	const theme = usePrefs((p) => p.theme);
+	const media = typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: light)").matches;
+	const light = theme === "light" || (theme === "system" && media);
+	return (
+		<button
+			type="button"
+			onClick={() => setPrefs({ theme: light ? "dark" : "light" })}
+			className="grid size-7 place-items-center rounded-md text-ink-400 transition-colors hover:bg-ink-800 hover:text-ink-100"
+			title={t("themeToggle")}
+			aria-label={t("themeToggle")}
+		>
+			{light ? <Moon className="size-3.5" /> : <Sun className="size-3.5" />}
+		</button>
+	);
+}
+
 function WindowControls() {
 	const t = useT(M);
 	const act = async (op: "minimize" | "toggleMaximize" | "close") => {
@@ -333,6 +354,7 @@ export function TitleBar({ onToggleSidebar, bare }: { onToggleSidebar?: () => vo
 				{heading}
 			</div>
 			{!bare && <SessionTools />}
+			<ThemeToggle />
 			{desktop ? <WindowControls /> : <span className="w-2" />}
 		</header>
 	);

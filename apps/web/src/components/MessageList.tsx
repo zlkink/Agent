@@ -43,6 +43,8 @@ const M = defineMessages({
 		statTtft: "首字 {v}",
 		statTitle: "这一轮回答的用量（含工具调用产生的多次模型请求）；速度从第一个字出来开始计，只统计流式输出",
 		thinking: "思考过程",
+		workedFor: "已处理 {d}",
+		ranCommand: "运行了命令",
 		stepsDone: "已完成 {n} 个步骤",
 		chars: "{n} 字",
 		aborted: "— 已中断",
@@ -71,6 +73,8 @@ const M = defineMessages({
 		statTtft: "first token {v}",
 		statTitle: "Usage of this answer (all model calls it made, tool rounds included). Speed is timed from the first token and only for streamed replies",
 		thinking: "Thoughts",
+		workedFor: "Worked for {d}",
+		ranCommand: "Ran a command",
 		stepsDone: "{n} steps completed",
 		chars: "{n} chars",
 		aborted: "— Stopped",
@@ -217,6 +221,12 @@ function resultText(value: unknown): string {
 	return JSON.stringify(value, null, 2);
 }
 
+function fmtDuration(ms: number): string {
+	const total = Math.max(1, Math.round(ms / 1000));
+	if (total < 60) return `${total}s`;
+	return `${Math.floor(total / 60)}m${total % 60}s`;
+}
+
 function argSummary(name: string, args: Record<string, unknown> | undefined): string {
 	if (!args) return "";
 	const key = ["command", "path", "file_path", "pattern", "query", "url"].find((k) => typeof args[k] === "string");
@@ -228,15 +238,15 @@ function ThinkingBlock({ text, live }: { text: string; live: boolean }) {
 	const t = useT(M);
 	const [open, setOpen] = useState(false);
 	return (
-		<div className="rounded-xl border border-ink-800 bg-ink-900/50">
-			<button type="button" onClick={() => setOpen(!open)} className="flex w-full items-center gap-2 px-3 py-2 text-xs text-ink-400 hover:text-ink-200">
+		<div>
+			<button type="button" onClick={() => setOpen(!open)} className="flex w-full items-center gap-2 rounded-lg px-1 py-1.5 text-xs text-ink-400 transition-colors hover:bg-ink-900/60 hover:text-ink-200">
 				<Brain className={clsx("size-3.5", live && "animate-pulse text-ember-300")} />
 				<span>{live ? t("thinkingLive") : t("thinking")}</span>
-				<span className="font-mono text-ink-600">{t("chars", { n: text.length })}</span>
-				{open ? <ChevronDown className="ml-auto size-3.5" /> : <ChevronRight className="ml-auto size-3.5" />}
+				<span className="font-mono text-[11px] text-ink-600">{t("chars", { n: text.length })}</span>
+				<ChevronRight className={clsx("ml-auto size-3.5 text-ink-600 transition-transform", open && "rotate-90")} />
 			</button>
 			<Collapse open={open}>
-				<div className="border-t border-ink-800 px-3.5 py-3 text-[13px] leading-relaxed whitespace-pre-wrap text-ink-400 italic">{text}</div>
+				<div className="mt-1 ml-5 border-l border-ink-800 py-1 pl-3 text-[13px] leading-relaxed whitespace-pre-wrap text-ink-400 italic">{text}</div>
 			</Collapse>
 		</div>
 	);
@@ -273,20 +283,23 @@ function ToolCard({ call, run, result }: { call: ToolCallContent; run?: ToolRun;
 	const viewer = useStore((s) => pluginActive(s.plugins, "workbench"));
 	const cwd = useStore((s) => s.session?.cwd ?? "");
 	const filePath = ["read", "write", "edit"].includes(call.name) && typeof call.arguments?.path === "string" ? call.arguments.path : undefined;
+	const label = ["bash", "exec", "terminal", "shell", "run_command"].includes((call.name || "").toLowerCase())
+		? t("ranCommand")
+		: call.name || run?.toolName || "tool";
 	return (
-		<div className={clsx("overflow-hidden rounded-xl border bg-ink-900/70 transition-colors duration-500", status === "error" ? "border-rose-400/25" : status === "running" ? "tool-running border-ember-500/30" : "border-ink-800")}>
-			<button type="button" onClick={() => setOpen(!open)} className="flex w-full items-center gap-2.5 px-3 py-2 text-left">
+		<div>
+			<button type="button" onClick={() => setOpen(!open)} className="flex w-full items-center gap-2 rounded-lg px-1 py-1.5 text-left text-xs text-ink-400 transition-colors hover:bg-ink-900/60 hover:text-ink-200">
 				<span
 					className={clsx(
-						"grid size-6 shrink-0 place-items-center rounded-md",
+						"grid size-5 shrink-0 place-items-center rounded-md",
 						status === "running" && "bg-ember-500/15 text-ember-300",
 						status === "done" && "bg-moss-400/12 text-moss-400",
 						status === "error" && "bg-rose-400/12 text-rose-400",
 					)}
 				>
-					{status === "running" ? <LoaderCircle className="size-3.5 animate-spin" /> : status === "error" ? <CircleAlert className="icon-pop size-3.5" /> : <Check className="icon-pop size-3.5" />}
+					{status === "running" ? <LoaderCircle className="size-3 animate-spin" /> : status === "error" ? <CircleAlert className="icon-pop size-3" /> : <Check className="icon-pop size-3" />}
 				</span>
-				<span className="shrink-0 font-mono text-[13px] font-medium text-ink-100">{call.name || run?.toolName}</span>
+				<span className="shrink-0 font-mono text-[13px] font-medium text-ink-200">{label}</span>
 				<span className="min-w-0 flex-1 truncate font-mono text-xs text-ink-500">{argSummary(call.name, call.arguments)}</span>
 				{filePath && status === "done" && <DownloadButton path={filePath} />}
 				{viewer && filePath && (
@@ -305,10 +318,10 @@ function ToolCard({ call, run, result }: { call: ToolCallContent; run?: ToolRun;
 					</span>
 				)}
 				{run?.durationMs !== undefined && <span className="shrink-0 font-mono text-[11px] text-ink-600">{(run.durationMs / 1000).toFixed(1)}s</span>}
-				{open ? <ChevronDown className="size-3.5 shrink-0 text-ink-500" /> : <ChevronRight className="size-3.5 shrink-0 text-ink-500" />}
+				<ChevronRight className={clsx("size-3.5 shrink-0 text-ink-600 transition-transform", open && "rotate-90")} />
 			</button>
 			<Collapse open={open}>
-				<div className="space-y-2 border-t border-ink-800 px-3 py-3">
+				<div className="mt-1 ml-5 space-y-2 border-l border-ink-800 py-1 pl-3">
 					<pre className="max-h-[35dvh] overflow-auto rounded-lg bg-ink-950 p-2.5 font-mono text-[11.5px] text-ink-300 md:max-h-48">{JSON.stringify(call.arguments, null, 2)}</pre>
 					{output && <pre className="max-h-[45dvh] overflow-auto rounded-lg bg-ink-950 p-2.5 font-mono text-[11.5px] break-words whitespace-pre-wrap text-ink-300 md:max-h-80">{output}</pre>}
 					{cut > 0 && (
@@ -506,7 +519,6 @@ function TurnBody({
 	results: Map<string, ToolResultMessage>;
 }) {
 	const t = useT(M);
-	const [open, setOpen] = useState(false);
 	const view = turnPresentation(group.map((g) => g.message), live);
 	const { fold, finalMessage, finalAt, steps } = view;
 	const render = (mode: BlockMode) =>
@@ -533,24 +545,19 @@ function TurnBody({
 			</div>
 		);
 	}
+	const firstAt = group[0]?.message.timestamp ?? 0;
+	const lastAt = group[group.length - 1]?.message.timestamp ?? 0;
+	const elapsed = lastAt > firstAt ? lastAt - firstAt : 0;
+	const duration = elapsed > 0 ? fmtDuration(elapsed) : "";
 	return (
-		<div className="flex flex-col gap-3">
-			<div>
-				<button
-					type="button"
-					onClick={() => setOpen(!open)}
-					aria-expanded={open}
-					className="flex w-full items-center gap-2 rounded-xl border border-ink-800 bg-ink-900/50 px-3.5 py-2 text-left text-xs text-ink-400 transition-colors hover:text-ink-200"
-				>
-					<Check className="size-3.5 text-moss-400" />
-					<span>{t("stepsDone", { n: steps })}</span>
-					<ChevronRight className={clsx("ml-auto size-3.5 transition-transform", open && "rotate-90")} />
-				</button>
-				<Collapse open={open}>
-					<div className="flex flex-col gap-3 pt-3">{render("steps")}</div>
-				</Collapse>
+		<div className="flex flex-col gap-2">
+			<div className="flex items-center gap-3 text-xs text-ink-500">
+				<span className="shrink-0">{duration ? t("workedFor", { d: duration }) : t("stepsDone", { n: steps })}</span>
+				<span className="h-px min-w-6 flex-1 bg-ink-800" />
 			</div>
-			{finalAt >= 0 && render("final")}
+			<div className="flex flex-col gap-0.5">{render("steps")}</div>
+			{finalAt >= 0 && <div className="mt-1">{render("final")}</div>}
+			{live && awaitingNext && <Pondering />}
 		</div>
 	);
 }
