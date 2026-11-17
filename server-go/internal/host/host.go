@@ -1378,7 +1378,7 @@ func (h *Host) dispatch(method string, raw json.RawMessage) (any, error) {
 	switch method {
 	case "host.info":
 		return map[string]any{
-			"version": "0.30.36-ramicore", "piVersion": h.cfg.PIVersion, "protocol": protocolVersion,
+			"version": "0.30.37-ramicore", "piVersion": h.cfg.PIVersion, "protocol": protocolVersion,
 			"cwd": h.cfg.Cwd, "platform": runtime.GOOS,
 		}, nil
 
@@ -3115,6 +3115,7 @@ func (h *Host) loadNetwork() {
 		return
 	}
 	h.mu.Lock()
+	migrated := false
 	if v, ok := saved["lan"]; ok {
 		h.network["lan"] = bool_(v)
 	}
@@ -3123,6 +3124,7 @@ func (h *Host) loadNetwork() {
 			// 7421 was the old default; move saved configurations to the new one.
 			if p == 7421 {
 				p = 9528
+				migrated = true
 			}
 			h.network["port"] = p
 		}
@@ -3137,6 +3139,11 @@ func (h *Host) loadNetwork() {
 		}
 	}
 	h.mu.Unlock()
+	if migrated {
+		// Persist the new default so an older Prometheus sharing this data
+		// directory cannot keep advertising the retired port.
+		h.saveNetwork()
+	}
 }
 
 func (h *Host) saveNetwork() {
