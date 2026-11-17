@@ -1,4 +1,5 @@
-use std::io::{BufRead, BufReader};
+use std::fs::OpenOptions;
+use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Condvar, Mutex};
@@ -489,12 +490,29 @@ fn spawn_backend(app: &tauri::AppHandle, backend: &Backend) -> Result<(), String
     *backend.child.lock().unwrap() = Some(child);
 
     let stderr_tail = Arc::new(Mutex::new(Vec::<String>::new()));
+    // Keep the backend's own output on disk: if the window or the server dies,
+    // the reason is still there after a restart.
+    let log_path = app.path().app_data_dir().ok().map(|dir| {
+        let logs = dir.join("logs");
+        let _ = std::fs::create_dir_all(&logs);
+        let file = logs.join("backend.log");
+        if std::fs::metadata(&file).map(|m| m.len() > 2 * 1024 * 1024).unwrap_or(false) {
+            let _ = std::fs::remove_file(&file);
+        }
+        file
+    });
     let stderr_thread = {
         let tail = stderr_tail.clone();
+        let log_path = log_path.clone();
         std::thread::spawn(move || {
+            let mut log = log_path.and_then(|p| OpenOptions::new().create(true).append(true).open(p).ok());
             for line in BufReader::new(stderr).lines() {
                 let Ok(line) = line else { break };
                 eprintln!("[server] {line}");
+                if let Some(file) = log.as_mut() {
+                    let _ = writeln!(file, "{line}");
+                    let _ = file.flush();
+                }
                 let mut t = tail.lock().unwrap();
                 t.push(line);
                 if t.len() > 12 {
