@@ -170,7 +170,7 @@ func New(cfg Config) *Host {
 		permPending: map[string]chan bool{},
 		uiPending:   map[string]chan map[string]any{},
 		kbDocs:      map[string][]map[string]any{},
-		network:     map[string]any{"lan": false, "port": 7421, "allowedHosts": []any{}},
+		network:     map[string]any{"lan": false, "port": 9528, "allowedHosts": []any{}},
 		netSessions: map[string]bool{},
 	}
 	h.settings = map[string]any{
@@ -1378,7 +1378,7 @@ func (h *Host) dispatch(method string, raw json.RawMessage) (any, error) {
 	switch method {
 	case "host.info":
 		return map[string]any{
-			"version": "0.30.31-ramicore", "piVersion": h.cfg.PIVersion, "protocol": protocolVersion,
+			"version": "0.30.32-ramicore", "piVersion": h.cfg.PIVersion, "protocol": protocolVersion,
 			"cwd": h.cfg.Cwd, "platform": runtime.GOOS,
 		}, nil
 
@@ -3120,6 +3120,10 @@ func (h *Host) loadNetwork() {
 	}
 	if v, ok := saved["port"]; ok {
 		if p := number(v); p >= 1024 && p <= 65535 {
+			// 7421 was the old default; move saved configurations to the new one.
+			if p == 7421 {
+				p = 9528
+			}
 			h.network["port"] = p
 		}
 	}
@@ -3219,7 +3223,7 @@ func (h *Host) applyNetworkPatch(p map[string]any) (any, error) {
 	lan := h.network["lan"] == true
 	port := number(h.network["port"])
 	if port == 0 {
-		port = 7421
+		port = 9528
 	}
 	wantTunnel := oldActive
 	if v, ok := p["tunnel"]; ok {
@@ -3643,7 +3647,7 @@ func (h *Host) networkStatus() map[string]any {
 	defer h.mu.Unlock()
 	port := number(h.network["port"])
 	if port == 0 {
-		port = 7421
+		port = 9528
 	}
 	hosts := h.network["allowedHosts"]
 	if hosts == nil {
@@ -3657,12 +3661,12 @@ func (h *Host) networkStatus() map[string]any {
 	lan := h.network["lan"] == true
 	local := h.localPort
 	if local == 0 {
-		local = 7421
+		local = 9528
 	}
 	addresses := []any{}
 	if lan {
 		for _, ip := range lanAddresses() {
-			addresses = append(addresses, fmt.Sprintf("http://%s:%d", ip, port))
+			addresses = append(addresses, ip)
 		}
 	}
 	return map[string]any{
