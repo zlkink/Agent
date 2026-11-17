@@ -260,6 +260,14 @@ export class PrometheusClient {
 			case "auth_ok":
 				if (frame.token) this.onSession?.(frame.token);
 				return this.opened();
+			case "login_failed":
+				// The saved token is no longer valid (password changed, sessions
+				// revoked, or tokens expired). Stop reconnecting with it and let
+				// the sign-in screen ask for the password again.
+				this.stopped = true;
+				this.setState("unauthorized");
+				this.ws?.close();
+				return;
 			case "response": {
 				const p = this.pending.get(frame.id);
 				if (!p) return;

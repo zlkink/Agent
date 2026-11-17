@@ -8,6 +8,7 @@ import (
 	"bufio"
 	"compress/gzip"
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha1"
 	"crypto/sha256"
@@ -26,6 +27,7 @@ import (
 	"regexp"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -89,7 +91,6 @@ type Host struct {
 	agents      []map[string]any
 	network     map[string]any
 	localPort   int
-	netSessions map[string]bool
 	applyNet    func(lan bool, port int) error
 	tunnelProc  *exec.Cmd
 	tunnelStop  context.CancelFunc
@@ -171,7 +172,6 @@ func New(cfg Config) *Host {
 		uiPending:   map[string]chan map[string]any{},
 		kbDocs:      map[string][]map[string]any{},
 		network:     map[string]any{"lan": false, "port": 9528, "allowedHosts": []any{}},
-		netSessions: map[string]bool{},
 	}
 	h.settings = map[string]any{
 		"autoCompaction":    true,
@@ -295,10 +295,80 @@ func (h *Host) SetNetworkApply(fn func(lan bool, port int) error) {
 	}
 }
 
+// netTokenTTL matches the browser cookie's lifetime. Tokens are signed with a
+// secret kept in network.json, so a restart does not sign every LAN client out.
+const netTokenTTL = 30 * 24 * time.Hour
+
+func randomHex(n int) string {
+	raw := make([]byte, n)
+	_, _ = rand.Read(raw)
+	return hex.EncodeToString(raw)
+}
+
+// networkSecretLocked returns (creating it when needed) the per-install secret
+// used to sign LAN session tokens. Callers must hold h.mu.
+func (h *Host) networkSecretLocked() string {
+	if s, _ := h.network["sessionSecret"].(string); s != "" {
+		return s
+	}
+	s := randomHex(32)
+	h.network["sessionSecret"] = s
+	return s
+}
+
+// revokeNetworkSessionsLocked signs every existing token out without touching
+// the password. Callers must hold h.mu.
+func (h *Host) revokeNetworkSessionsLocked() {
+	h.network["sessionSecret"] = randomHex(32)
+}
+
+// networkTokenKeyLocked binds tokens to both the signing secret and the current
+// password hash: changing either one invalidates old sessions.
+func (h *Host) networkTokenKeyLocked() []byte {
+	saltHex, _ := h.network["passwordSalt"].(string)
+	hashHex, _ := h.network["passwordHash"].(string)
+	if saltHex == "" || hashHex == "" {
+		return nil
+	}
+	sum := sha256.Sum256([]byte("ramicore-lan-session\x00" + h.networkSecretLocked() + "\x00" + saltHex + "\x00" + hashHex))
+	return sum[:]
+}
+
+func (h *Host) issueNetworkTokenLocked(now time.Time) string {
+	key := h.networkTokenKeyLocked()
+	if key == nil {
+		return ""
+	}
+	payload := "v1." + strconv.FormatInt(now.Add(netTokenTTL).Unix(), 10)
+	mac := hmac.New(sha256.New, key)
+	_, _ = mac.Write([]byte(payload))
+	return payload + "." + hex.EncodeToString(mac.Sum(nil))
+}
+
+func (h *Host) validNetworkTokenLocked(token string) bool {
+	key := h.networkTokenKeyLocked()
+	if key == nil || token == "" {
+		return false
+	}
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 || parts[0] != "v1" {
+		return false
+	}
+	exp, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil || time.Now().Unix() > exp {
+		return false
+	}
+	mac := hmac.New(sha256.New, key)
+	_, _ = mac.Write([]byte(parts[0] + "." + parts[1]))
+	want := hex.EncodeToString(mac.Sum(nil))
+	return subtle.ConstantTimeCompare([]byte(want), []byte(parts[2])) == 1
+}
+
 func (h *Host) setNetworkPassword(password string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.netSessions = map[string]bool{}
+	// Password changes always sign existing clients out.
+	h.revokeNetworkSessionsLocked()
 	if password == "" {
 		delete(h.network, "passwordSalt")
 		delete(h.network, "passwordHash")
@@ -311,7 +381,8 @@ func (h *Host) setNetworkPassword(password string) {
 	h.network["passwordHash"] = hex.EncodeToString(sum[:])
 }
 
-// CheckNetworkPassword verifies the LAN password and returns a session token.
+// CheckNetworkPassword verifies the LAN password and returns a signed session
+// token. The token is stateless: it still verifies after a host restart.
 func (h *Host) CheckNetworkPassword(password string) (string, bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -328,10 +399,10 @@ func (h *Host) CheckNetworkPassword(password string) (string, bool) {
 	if subtle.ConstantTimeCompare([]byte(hex.EncodeToString(sum[:])), []byte(hashHex)) != 1 {
 		return "", false
 	}
-	raw := make([]byte, 24)
-	_, _ = rand.Read(raw)
-	token := hex.EncodeToString(raw)
-	h.netSessions[token] = true
+	token := h.issueNetworkTokenLocked(time.Now())
+	if token == "" {
+		return "", false
+	}
 	return token, true
 }
 
@@ -341,7 +412,7 @@ func (h *Host) checkNetworkSession(token string) bool {
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	return h.netSessions[token]
+	return h.validNetworkTokenLocked(token)
 }
 
 // CheckNetworkSession is the HTTP side of the LAN session check.
@@ -432,6 +503,15 @@ func (c *client) send(v any) {
 	_ = c.conn.WriteJSON(v)
 }
 
+// closeAuthFailed sends a proper close frame before dropping the socket. A bare
+// Close() looks like an abnormal 1006 to browsers, which hides the reason from
+// the UI; 4003 tells it to show the sign-in screen again.
+func (c *client) closeAuthFailed(reason string) {
+	deadline := time.Now().Add(time.Second)
+	_ = c.conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(4003, reason), deadline)
+	_ = c.conn.Close()
+}
+
 func (h *Host) handleFrame(c *client, f *clientFrame) {
 	switch f.Type {
 	case "ping":
@@ -449,7 +529,7 @@ func (h *Host) handleFrame(c *client, f *clientFrame) {
 			return
 		}
 		c.send(map[string]any{"type": "login_failed", "message": "invalid token"})
-		_ = c.conn.Close()
+		c.closeAuthFailed("invalid token")
 	case "login":
 		if c.network {
 			if token, ok := h.CheckNetworkPassword(f.Password); ok {
@@ -462,7 +542,7 @@ func (h *Host) handleFrame(c *client, f *clientFrame) {
 	case "subscribe", "unsubscribe", "plugin.watch", "plugin.unwatch", "rpc":
 		if !c.authed {
 			c.send(map[string]any{"type": "error", "message": "authentication required"})
-			_ = c.conn.Close()
+			c.closeAuthFailed("authentication required")
 			return
 		}
 		switch f.Type {
@@ -1378,7 +1458,7 @@ func (h *Host) dispatch(method string, raw json.RawMessage) (any, error) {
 	switch method {
 	case "host.info":
 		return map[string]any{
-			"version": "0.30.37-ramicore", "piVersion": h.cfg.PIVersion, "protocol": protocolVersion,
+			"version": "0.30.38-ramicore", "piVersion": h.cfg.PIVersion, "protocol": protocolVersion,
 			"cwd": h.cfg.Cwd, "platform": runtime.GOOS,
 		}, nil
 
@@ -3138,6 +3218,14 @@ func (h *Host) loadNetwork() {
 			h.network["passwordHash"] = hash
 		}
 	}
+	if v, ok := saved["sessionSecret"].(string); ok && v != "" {
+		h.network["sessionSecret"] = v
+	} else if _, ok := h.network["passwordHash"].(string); ok {
+		// First run of the signed-token version: mint a persistent secret so
+		// tokens issued now survive the next restart.
+		h.networkSecretLocked()
+		migrated = true
+	}
 	h.mu.Unlock()
 	if migrated {
 		// Persist the new default so an older Prometheus sharing this data
@@ -3149,7 +3237,7 @@ func (h *Host) loadNetwork() {
 func (h *Host) saveNetwork() {
 	h.mu.Lock()
 	saved := map[string]any{}
-	for _, k := range []string{"lan", "port", "allowedHosts", "passwordSalt", "passwordHash"} {
+	for _, k := range []string{"lan", "port", "allowedHosts", "passwordSalt", "passwordHash", "sessionSecret"} {
 		if v, ok := h.network[k]; ok {
 			saved[k] = v
 		}
@@ -3224,7 +3312,7 @@ func (h *Host) applyNetworkPatch(p map[string]any) (any, error) {
 		h.network["lan"] = bool_(v)
 	}
 	if v, ok := p["revokeSessions"]; ok && bool_(v) {
-		h.netSessions = map[string]bool{}
+		h.revokeNetworkSessionsLocked()
 	}
 
 	lan := h.network["lan"] == true
