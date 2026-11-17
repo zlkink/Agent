@@ -7,12 +7,12 @@
     "node": ">=22.19.0"
   },
   "scripts": {
-    "dev:server": "pnpm --filter @prometheus/server dev",
     "dev:web": "pnpm --filter @prometheus/web dev",
-    "dev:desktop": "pnpm --filter @prometheus/desktop tauri dev",
-    "tui": "pnpm --filter @prometheus/cli start",
-    "build": "pnpm -r build",
-    "typecheck": "pnpm -r typecheck",
+    "build:web": "pnpm --filter @prometheus/web build",
+    "build:host": "cd server-go && go build ./...",
+    "build:plugins": "cd server-go/node/plugin-host && node build-plugins.mjs",
+    "build": "pnpm run build:web",
+    "typecheck": "pnpm --filter @prometheus/web typecheck",
     "test": "vitest run"
   },
   "devDependencies": {

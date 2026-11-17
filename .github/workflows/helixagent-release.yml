@@ -47,16 +47,16 @@ jobs:
             target: aarch64-apple-darwin
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: server-go/go.mod
           cache-dependency-path: server-go/go.sum
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: pnpm
@@ -167,7 +167,10 @@ jobs:
             cp -R "$STAGE/web" "$P/web"
             cp -R "$STAGE/node" "$P/node"
             cp server-go/package/README.md "$P/README.md"
-            DESKTOP="$TARGET_ROOT/release/helixagent-desktop${{ matrix.ext }}"
+            DESKTOP="$TARGET_ROOT/release/RamiCore Desktop${{ matrix.ext }}"
+            if [ ! -f "$DESKTOP" ]; then
+              DESKTOP="$TARGET_ROOT/release/helixagent-desktop${{ matrix.ext }}"
+            fi
             if [ ! -f "$DESKTOP" ]; then
               DESKTOP="$TARGET_ROOT/release/RamiCore${{ matrix.ext }}"
             fi
@@ -183,7 +186,7 @@ jobs:
           rm -rf "$OUT/portable"
           ls -lh "$OUT" "$OUT/installers"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: helixagent-${{ matrix.os }}-${{ matrix.goarch }}
           path: server-go/build-artifacts/**
@@ -196,12 +199,12 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           path: artifacts
           merge-multiple: true
 
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.ref_name }}
           name: RamiCore ${{ github.ref_name }}

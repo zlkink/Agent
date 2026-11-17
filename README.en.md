@@ -1,21 +1,21 @@
 <div align="center">
 
-<img src="https://raw.githubusercontent.com/Mouseww/Prometheus/main/docs/images/logo.svg" width="96" alt="Prometheus" />
+<img src="https://raw.githubusercontent.com/zlkink/Agent/main/docs/images/logo.svg" width="96" alt="Prometheus" />
 
 # Prometheus
 
 **One AI agent session across your computer, phone, browser and terminal.**
 An open-source, self-hostable AI agent workbench. Pick up a task from your phone, switch agents mid-conversation without starting over, and keep control: it asks before writing files and masks secrets before they reach the model.
 
-[![Stars](https://img.shields.io/github/stars/Mouseww/Prometheus?style=for-the-badge&logo=github&color=ff5a1f)](https://github.com/Mouseww/Prometheus/stargazers)
-[![Release](https://img.shields.io/github/v/release/Mouseww/Prometheus?style=for-the-badge&color=ffc061)](https://github.com/Mouseww/Prometheus/releases)
-[![Issues](https://img.shields.io/github/issues/Mouseww/Prometheus?style=for-the-badge)](https://github.com/Mouseww/Prometheus/issues)
+[![Stars](https://img.shields.io/github/stars/zlkink/Agent?style=for-the-badge&logo=github&color=ff5a1f)](https://github.com/zlkink/Agent/stargazers)
+[![Release](https://img.shields.io/github/v/release/zlkink/Agent?style=for-the-badge&color=ffc061)](https://github.com/zlkink/Agent/releases)
+[![Issues](https://img.shields.io/github/issues/zlkink/Agent?style=for-the-badge)](https://github.com/zlkink/Agent/issues)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A5%2022.19-339933?style=for-the-badge&logo=node.js&logoColor=white)](#quick-start)
 
 [Quick start](#quick-start) · [Features](#features) · [Architecture](#architecture) · [Write a plugin](#write-a-plugin) · [Deployment](docs/en/deployment.md) · [Architecture doc](docs/en/architecture.md) · [中文](README.md)
 
-<img src="https://raw.githubusercontent.com/Mouseww/Prometheus/main/docs/images/demo-phone.gif" alt="Phone connected to the agent on the computer" width="760" />
+<img src="https://raw.githubusercontent.com/zlkink/Agent/main/docs/images/demo-phone.gif" alt="Phone connected to the agent on the computer" width="760" />
 
 </div>
 
@@ -27,11 +27,11 @@ An open-source, self-hostable AI agent workbench. Pick up a task from your phone
 
 **2. It asks first, then acts.** Before writing a file or running a command it shows the full content and waits for your OK; you can "always allow" per command. The recording below is real: Claude Sonnet adds type hints to a function, with one confirmation for the write and one for the run.
 
-<div align="center"><img src="https://raw.githubusercontent.com/Mouseww/Prometheus/main/docs/images/demo-chat.gif" alt="Permission prompts" width="760" /></div>
+<div align="center"><img src="https://raw.githubusercontent.com/zlkink/Agent/main/docs/images/demo-chat.gif" alt="Permission prompts" width="760" /></div>
 
 **3. Secrets stay on your machine.** Connection strings, phone numbers and keys are swapped for aliases before the request goes to the model, and swapped back in the answer; if masking fails the request is blocked.
 
-<div align="center"><img src="https://raw.githubusercontent.com/Mouseww/Prometheus/main/docs/images/demo-veil.gif" alt="Privacy mask" width="760" /></div>
+<div align="center"><img src="https://raw.githubusercontent.com/zlkink/Agent/main/docs/images/demo-veil.gif" alt="Privacy mask" width="760" /></div>
 
 ---
 
@@ -54,21 +54,21 @@ Built on the [PI Agent](https://github.com/earendil-works/pi) runtime by default
 
 Streaming output, Markdown / tables / syntax highlighting, expandable tool-call traces, image input, voice input, a context-usage gauge, plus session branching and rollback.
 
-<img src="https://raw.githubusercontent.com/Mouseww/Prometheus/main/docs/images/chat.png" alt="Chat and tool calls" width="900" />
+<img src="https://raw.githubusercontent.com/zlkink/Agent/main/docs/images/chat.png" alt="Chat and tool calls" width="900" />
 
 ### Ask before writing or running
 
 In the default mode, writing files and running commands request your confirmation, showing exactly what will be written or executed.
 
 <div align="center">
-<img src="https://raw.githubusercontent.com/Mouseww/Prometheus/main/docs/images/permission.png" alt="Permission confirmation" width="620" />
+<img src="https://raw.githubusercontent.com/zlkink/Agent/main/docs/images/permission.png" alt="Permission confirmation" width="620" />
 </div>
 
 ### AI gateways: plug in any compatible endpoint
 
 Add a gateway in settings to use your own proxy, a relay, or an official endpoint. Model lists, context windows and pricing are all configurable.
 
-<img src="https://raw.githubusercontent.com/Mouseww/Prometheus/main/docs/images/gateways.png" alt="AI gateways" width="900" />
+<img src="https://raw.githubusercontent.com/zlkink/Agent/main/docs/images/gateways.png" alt="AI gateways" width="900" />
 
 ### Agent runtimes: PI, Claude Code, Codex, OpenCode, ACP agents
 
@@ -89,9 +89,9 @@ Claude Code, Codex, OpenCode and ACP agents must be installed and signed in on t
 - **Prometheus plugins**: knowledge base (LanceDB vector search), MCP management, memory, todo, Git, automation, voice, terminal, workbench, SSH, Veil, modes, subagents, connectors and more are all delivered as plugins and can be disabled individually.
 - **PI plugin marketplace**: install community PI extension packages directly.
 
-<img src="https://raw.githubusercontent.com/Mouseww/Prometheus/main/docs/images/skills.png" alt="Skills" width="900" />
+<img src="https://raw.githubusercontent.com/zlkink/Agent/main/docs/images/skills.png" alt="Skills" width="900" />
 
-<img src="https://raw.githubusercontent.com/Mouseww/Prometheus/main/docs/images/plugins.png" alt="Prometheus plugins" width="900" />
+<img src="https://raw.githubusercontent.com/zlkink/Agent/main/docs/images/plugins.png" alt="Prometheus plugins" width="900" />
 
 ### Chat experience
 
@@ -110,7 +110,7 @@ Before a request leaves your machine, secrets (keys, phone numbers, connection s
 
 Review changes, stage, commit and sync. **Git review** walks through the agent's edits, and the **branch picker** switches branches in place.
 
-<img src="https://raw.githubusercontent.com/Mouseww/Prometheus/main/docs/images/git.png" alt="Git panel" width="900" />
+<img src="https://raw.githubusercontent.com/zlkink/Agent/main/docs/images/git.png" alt="Git panel" width="900" />
 
 ### SSH and workbench
 
@@ -151,28 +151,20 @@ Save several Prometheus servers (this machine, a company server, a home NAS...) 
 Requirements: Node ≥ 22.19 (24 recommended), pnpm 10. The desktop build additionally needs Rust ≥ 1.77 and the [Tauri 2 prerequisites](https://tauri.app/start/prerequisites/).
 
 ```bash
-git clone https://github.com/Mouseww/Prometheus.git
+git clone https://github.com/zlkink/Agent.git
 cd Prometheus
 pnpm install
 ```
 
 | Mode | Command | Notes |
 | --- | --- | --- |
-| TUI terminal | `pnpm tui` | PI's native interactive UI; loads gateways and plugins automatically |
-| Web | `pnpm --filter @prometheus/web build && pnpm dev:server` | Open http://127.0.0.1:7420 |
-| Desktop GUI | `pnpm dev:desktop` | Tauri window; starts the local server for you |
+| Web UI | `pnpm build:web` | Output in `apps/web/dist`, served by the Go host |
+| Go host | `cd server-go && go run ./cmd/prometheus -serve -allow-write` | HTTP/WS + agent runtime |
+| Desktop installers | see `.github/workflows/helixagent-release.yml` | Built automatically for Windows / Linux / macOS |
 
 On first launch, go to **Settings → AI gateways**, add a model endpoint, and you can start chatting.
 
-### Docker
-
-```bash
-docker build -t prometheus .
-docker run -p 7420:7420 -e PROMETHEUS_TOKEN=<random string, 16+ chars> \
-  -v prometheus-data:/data -v $PWD:/workspace prometheus
-```
-
-A token is mandatory when listening on a non-loopback address; for public deployments put it behind an HTTPS reverse proxy. Full details on environment variables, LAN / domain access and the Android build are in [docs/en/deployment.md](docs/en/deployment.md).
+A token is mandatory when listening on a non-loopback address; for public deployments put it behind an HTTPS reverse proxy.
 
 ## Architecture
 
@@ -201,14 +193,11 @@ flowchart TB
 ```
 packages/protocol     wire protocol types
 packages/plugin-sdk   plugin SDK (definePlugin)
-packages/gateway      AI gateways: OpenAI Chat/Responses, Anthropic, Gemini
-packages/knowledge    knowledge service and the knowledge_search tool
-packages/core         runtime host (sessions, plugins, UI bridge)
-plugins/*             built-in plugins: knowledge, MCP, skills, memory, Git, automation, terminal, connectors…
-apps/server           HTTP + WebSocket server
-apps/web              React web UI (shared by desktop / Android)
-apps/desktop          Tauri desktop shell
-apps/cli              TUI entry point
+packages/gateway      AI gateway helpers used by plugins
+packages/subagents    subagent runtime used by the subagents plugin
+plugins/*             bundled TypeScript plugins (built into the Go plugin host)
+apps/web              React web UI
+server-go             Go host, desktop shell, agent/plugin sidecars
 ```
 
 See [docs/en/architecture.md](docs/en/architecture.md) for the full design.
@@ -249,11 +238,11 @@ This project is licensed under the [GNU AGPL-3.0](LICENSE):
 
 ## Star History
 
-<a href="https://star-history.com/#Mouseww/Prometheus&Date">
+<a href="https://star-history.com/#zlkink/Agent&Date">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=Mouseww/Prometheus&type=Date&theme=dark" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=Mouseww/Prometheus&type=Date" />
-    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=Mouseww/Prometheus&type=Date" width="720" />
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=zlkink/Agent&type=Date&theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=zlkink/Agent&type=Date" />
+    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=zlkink/Agent&type=Date" width="720" />
   </picture>
 </a>
 

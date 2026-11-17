@@ -67,7 +67,7 @@ type Config struct {
 	Token        string
 	AllowWrite   bool
 	Offline      bool
-	StartSidecar func(sessionID, mcpURL, mcpToken, staticContext string) (*sidecar.Client, error)
+	StartSidecar func(sessionID, cwd, mcpURL, mcpToken, staticContext string) (*sidecar.Client, error)
 }
 
 type Host struct {
@@ -230,7 +230,7 @@ func New(cfg Config) *Host {
 	h.addWorkspace(cfg.Cwd)
 	h.loadNetwork()
 	if len(h.order) == 0 {
-		h.create(cfg.Cwd, "Prometheus Go POC", "claude-code")
+		h.create(cfg.Cwd, "RamiCore", "claude-code")
 	} else {
 		h.persist()
 	}
@@ -468,7 +468,7 @@ func (h *Host) handleFrame(c *client, f *clientFrame) {
 		case "unsubscribe":
 			delete(c.subs, f.SessionID)
 		case "plugin.watch", "plugin.unwatch":
-			// no plugin topics in the POC
+			// no plugin topics
 		case "rpc":
 			data, err := h.dispatch(f.Method, f.Params)
 			if err != nil {
@@ -937,7 +937,7 @@ func (h *Host) runPrompt(s *Session, text string, images ...[]any) {
 			mcpURL, mcpToken = h.bus.Open(s.ID, s.Cwd)
 		}
 		var err error
-		sc, err = h.cfg.StartSidecar(s.ID, mcpURL, mcpToken, staticCtx)
+		sc, err = h.cfg.StartSidecar(s.ID, s.Cwd, mcpURL, mcpToken, staticCtx)
 		if err != nil {
 			if h.bus != nil {
 				h.bus.CloseSession(s.ID)
@@ -997,6 +997,103 @@ func (h *Host) runPrompt(s *Session, text string, images ...[]any) {
 
 	var textBuf strings.Builder
 	var usage map[string]any
+	var resultText string
+	content := []any{}
+	thinkingAt, textAt := -1, -1
+	toolAt := map[string]int{}
+	toolBlocks := map[string]map[string]any{}
+
+	parseInput := func(raw json.RawMessage) any {
+		if len(raw) == 0 {
+			return map[string]any{}
+		}
+		var v any
+		if json.Unmarshal(raw, &v) != nil || v == nil {
+			return map[string]any{}
+		}
+		return v
+	}
+	appendThinking := func(delta string) {
+		if delta == "" {
+			return
+		}
+		if thinkingAt < 0 {
+			content = append(content, map[string]any{"type": "thinking", "thinking": ""})
+			thinkingAt = len(content) - 1
+			textAt = -1
+		}
+		block := content[thinkingAt].(map[string]any)
+		block["thinking"] = str(block["thinking"]) + delta
+		h.event(s.ID, map[string]any{
+			"type":  "message_update",
+			"delta": map[string]any{"type": "thinking_delta", "contentIndex": thinkingAt, "delta": delta},
+		})
+	}
+	appendText := func(delta string) {
+		if delta == "" {
+			return
+		}
+		if textAt < 0 {
+			content = append(content, map[string]any{"type": "text", "text": ""})
+			textAt = len(content) - 1
+			thinkingAt = -1
+		}
+		block := content[textAt].(map[string]any)
+		block["text"] = str(block["text"]) + delta
+		textBuf.WriteString(delta)
+		h.event(s.ID, map[string]any{
+			"type":  "message_update",
+			"delta": map[string]any{"type": "text_delta", "contentIndex": textAt, "delta": delta},
+		})
+	}
+	startTool := func(id, name string, input json.RawMessage, complete bool) {
+		if id == "" {
+			return
+		}
+		args := parseInput(input)
+		if idx, ok := toolAt[id]; ok {
+			block := toolBlocks[id]
+			if name != "" {
+				block["name"] = name
+			}
+			if complete {
+				block["arguments"] = args
+				h.event(s.ID, map[string]any{
+					"type":  "message_update",
+					"delta": map[string]any{"type": "toolcall_end", "contentIndex": idx, "toolCall": block},
+				})
+			}
+			return
+		}
+		idx := len(content)
+		block := map[string]any{"type": "toolCall", "id": id, "name": name, "arguments": args}
+		content = append(content, block)
+		toolAt[id] = idx
+		toolBlocks[id] = block
+		thinkingAt, textAt = -1, -1
+		h.event(s.ID, map[string]any{
+			"type":  "message_update",
+			"delta": map[string]any{"type": "toolcall_start", "contentIndex": idx, "id": id, "name": name},
+		})
+		h.event(s.ID, map[string]any{
+			"type": "tool_execution_start", "toolCallId": id,
+			"toolName": name, "args": args,
+		})
+	}
+	toolResult := func(raw json.RawMessage) any {
+		if len(raw) == 0 {
+			return map[string]any{}
+		}
+		var v any
+		if json.Unmarshal(raw, &v) != nil || v == nil {
+			return map[string]any{}
+		}
+		if text, ok := v.(string); ok {
+			v = []any{map[string]any{"type": "text", "text": text}}
+		}
+		return map[string]any{"content": v}
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	err := sc.PromptWithImages(ctx, text, turnCtx, media, func(raw json.RawMessage) error {
@@ -1007,7 +1104,7 @@ func (h *Host) runPrompt(s *Session, text string, images ...[]any) {
 			Tool    string          `json:"tool"`
 			ID      string          `json:"id"`
 			Message string          `json:"message"`
-			Result  string          `json:"result"`
+			Result  json.RawMessage `json:"result"`
 			IsError bool            `json:"isError"`
 			Usage   json.RawMessage `json:"usage"`
 			Input   json.RawMessage `json:"input"`
@@ -1018,21 +1115,24 @@ func (h *Host) runPrompt(s *Session, text string, images ...[]any) {
 			return nil
 		}
 		switch ev.Type {
+		case "thinking_delta":
+			appendThinking(ev.Text)
 		case "text_delta":
-			textBuf.WriteString(ev.Text)
-			h.event(s.ID, map[string]any{
-				"type":  "message_update",
-				"delta": map[string]any{"type": "text_delta", "contentIndex": 0, "delta": ev.Text},
-			})
+			appendText(ev.Text)
 		case "tool_start":
-			h.event(s.ID, map[string]any{
-				"type": "tool_execution_start", "toolCallId": ev.ID,
-				"toolName": ev.Name, "args": map[string]any{},
-			})
+			startTool(ev.ID, ev.Name, ev.Input, false)
+		case "tool_input":
+			startTool(ev.ID, ev.Name, ev.Input, true)
 		case "tool_result":
+			if idx, ok := toolAt[ev.ID]; ok {
+				h.event(s.ID, map[string]any{
+					"type":  "message_update",
+					"delta": map[string]any{"type": "toolcall_end", "contentIndex": idx, "toolCall": toolBlocks[ev.ID]},
+				})
+			}
 			h.event(s.ID, map[string]any{
 				"type": "tool_execution_end", "toolCallId": ev.ID,
-				"toolName": "tool", "result": map[string]any{}, "isError": ev.IsError,
+				"toolName": "tool", "result": toolResult(ev.Result), "isError": ev.IsError,
 			})
 		case "permission_request":
 			go h.handlePermission(s, sc, ev.ID, ev.Tool, ev.Input)
@@ -1061,8 +1161,11 @@ func (h *Host) runPrompt(s *Session, text string, images ...[]any) {
 			if len(ev.Usage) > 0 {
 				_ = json.Unmarshal(ev.Usage, &usage)
 			}
-			if ev.Result != "" && textBuf.Len() == 0 {
-				textBuf.WriteString(ev.Result)
+			if len(ev.Result) > 0 && textBuf.Len() == 0 {
+				var text string
+				if json.Unmarshal(ev.Result, &text) == nil {
+					resultText = text
+				}
 			}
 		case "error":
 			return errors.New(ev.Message)
@@ -1070,9 +1173,8 @@ func (h *Host) runPrompt(s *Session, text string, images ...[]any) {
 		return nil
 	})
 
-	content := []any{}
-	if textBuf.Len() > 0 {
-		content = append(content, map[string]any{"type": "text", "text": textBuf.String()})
+	if resultText != "" && textBuf.Len() == 0 {
+		content = append(content, map[string]any{"type": "text", "text": resultText})
 	}
 	stop := "stop"
 	if err != nil {
@@ -1251,7 +1353,7 @@ func (h *Host) dispatch(method string, raw json.RawMessage) (any, error) {
 	switch method {
 	case "host.info":
 		return map[string]any{
-			"version": "0.30.26-ramicore", "piVersion": h.cfg.PIVersion, "protocol": protocolVersion,
+			"version": "0.30.28-ramicore", "piVersion": h.cfg.PIVersion, "protocol": protocolVersion,
 			"cwd": h.cfg.Cwd, "platform": runtime.GOOS,
 		}, nil
 
@@ -2389,7 +2491,7 @@ func (h *Host) dispatch(method string, raw json.RawMessage) (any, error) {
 		return h.pluginList(), nil
 
 	case "plugin.install", "plugin.setEnabled", "plugin.reload", "plugin.remove":
-		return nil, fmt.Errorf("plugins are not implemented in the Go POC")
+		return nil, fmt.Errorf("plugin management is not available in this build")
 
 	case "commands.list":
 		return []any{
@@ -2454,7 +2556,7 @@ func (h *Host) dispatch(method string, raw json.RawMessage) (any, error) {
 		return nil, nil
 
 	case "subagent.detail", "subagent.stop":
-		return nil, fmt.Errorf("no subagents in the Go POC")
+		return nil, fmt.Errorf("subagents are not available")
 
 	case "panel.link":
 		return map[string]any{"id": newID()}, nil
@@ -3828,8 +3930,8 @@ func (h *Host) gatewayModelList() []any {
 			}
 			out = append(out, map[string]any{
 				"provider": gid, "id": id, "name": name,
-				"reasoning": boolDefault(m["reasoning"], true),
-				"vision":    boolDefault(m["vision"], false),
+				"reasoning":     boolDefault(m["reasoning"], true),
+				"vision":        boolDefault(m["vision"], false),
 				"contextWindow": cw,
 			})
 		}

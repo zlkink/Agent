@@ -48,8 +48,8 @@ const M = defineMessages({
 		ops: "可用操作",
 		writeBadge: "写",
 		cat: "类别",
-		systemBrowser: "系统浏览器（Chrome 调试端口）",
-		systemBrowserHint: "勾选后浏览器工具连接你当前运行的 Chrome，而不是内置浏览器。需要先用 --remote-debugging-port=9222 启动 Chrome。",
+		systemBrowser: "系统浏览器（Chrome）",
+		systemBrowserHint: "勾选后浏览器工具连接你当前运行的 Chrome。Chrome 144+ 可先在 chrome://inspect/#remote-debugging 勾选允许远程调试，端口会自动读取；传统方式是用 --remote-debugging-port 启动。",
 		debugPort: "调试端口",
 	},
 	en: {
@@ -91,8 +91,8 @@ const M = defineMessages({
 		ops: "Operations",
 		writeBadge: "write",
 		cat: "Category",
-		systemBrowser: "System browser (Chrome debug port)",
-		systemBrowserHint: "Use your running Chrome for browser tools instead of the built-in browser. Start Chrome with --remote-debugging-port=9222 first.",
+		systemBrowser: "System browser (Chrome)",
+		systemBrowserHint: "Use your running Chrome for browser tools. On Chrome 144+ enable chrome://inspect/#remote-debugging and the port is read automatically; the classic way is starting Chrome with --remote-debugging-port.",
 		debugPort: "Debug port",
 	},
 });

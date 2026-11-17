@@ -69,22 +69,16 @@
       #splash .sp-hint { position: absolute; top: calc(100% + 18px); left: 50%; transform: translateX(-50%); white-space: nowrap;
         font: 12px/1.4 "IBM Plex Sans", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif; color: var(--sp-fg); opacity: 0;
         animation: sp-hint 0.6s 3.5s forwards; }
-      @keyframes sp-hint { to { opacity: 0.45; } }
-      #splash .sp-ember { position: absolute; bottom: -10px; width: 3px; height: 3px; border-radius: 50%; background: var(--sp-d);
-        box-shadow: 0 0 6px 1px rgb(var(--sp-glow) / 0.8); opacity: 0; animation: sp-float linear infinite; }
+      @keyframes sp-hint { to { opacity: 0.45; } }
       #splash.sp-still *, #splash.sp-still *::after { animation: none !important; }
-      #splash.sp-still .sp-outline, #splash.sp-still .sp-spark, #splash.sp-still .sp-ember { display: none; }
+      #splash.sp-still .sp-outline { display: none; }
       #splash.sp-still .sp-fill, #splash.sp-still .sp-word, #splash.sp-still .sp-bar, #splash.sp-still .sp-halo { opacity: 1; transform: none; }
-      #splash.sp-still .sp-word { letter-spacing: 0.32em; margin-right: -0.32em; }
-      #splash.sp-still .sp-base { transform: none; }
-      @keyframes sp-spark { 0% { opacity: 0; transform: translateY(6px) scale(0.2); } 35% { opacity: 1; transform: translateY(0) scale(1.4); }
-        100% { opacity: 0; transform: translateY(-9px) scale(0.4); } }
+      #splash.sp-still .sp-word { letter-spacing: 0.32em; margin-right: -0.32em; }
       @keyframes sp-draw { to { stroke-dashoffset: 0; } }
       @keyframes sp-fadeout { to { opacity: 0; } }
       @keyframes sp-fadein { to { opacity: 1; } }
       @keyframes sp-ignite { to { opacity: 1; transform: none; } }
       @keyframes sp-flicker { 0%, 100% { transform: scaleY(1) skewX(0); } 30% { transform: scaleY(0.96) skewX(-1.5deg); } 60% { transform: scaleY(1.03) skewX(1deg); } }
-      @keyframes sp-base { to { transform: scaleX(1); } }
       @keyframes sp-halo { to { opacity: 1; transform: scale(1); } }
       @keyframes sp-breathe { 0%, 100% { opacity: 1; } 50% { opacity: 0.65; } }
       @keyframes sp-word { to { opacity: 1; letter-spacing: 0.32em; margin-right: -0.32em; } }
@@ -101,10 +95,8 @@
             <defs>
               <linearGradient id="sp-g" x1="0" y1="1" x2="0" y2="0"><stop class="sp-s0" offset="0" /><stop class="sp-s1" offset="1" /></linearGradient>
             </defs>
-            <path class="sp-outline" pathLength="1" d="M16 3c1.9 5 7.7 7.8 7.7 14.4A7.7 7.7 0 0 1 16 25.1a7.7 7.7 0 0 1-7.7-7.7c0-3.5 1.9-5.4 3.5-7.1.4 2.4 1.4 3.8 3 4.3C13.8 11 14.3 6.6 16 3Z" />
-            <path class="sp-fill" fill="url(#sp-g)" d="M16 3c1.9 5 7.7 7.8 7.7 14.4A7.7 7.7 0 0 1 16 25.1a7.7 7.7 0 0 1-7.7-7.7c0-3.5 1.9-5.4 3.5-7.1.4 2.4 1.4 3.8 3 4.3C13.8 11 14.3 6.6 16 3Z" />
-            <circle class="sp-spark" cx="16" cy="22" r="1.4" />
-            <rect class="sp-base" x="8" y="27" width="16" height="2.2" rx="1.1" opacity=".6" />
+            <path class="sp-outline" pathLength="1" d="M7 27V5h8.4c4.7 0 7.8 2.7 7.8 6.6 0 3-1.6 5.2-4.2 6.1L25 27h-5l-4.5-8.8h-3.4V27H7Z M12.1 14.2h3.6c2.3 0 3.7-1.4 3.7-3.5s-1.4-3.4-3.7-3.4h-3.6v6.9Z" />
+            <path class="sp-fill" fill="url(#sp-g)" fill-rule="evenodd" d="M7 27V5h8.4c4.7 0 7.8 2.7 7.8 6.6 0 3-1.6 5.2-4.2 6.1L25 27h-5l-4.5-8.8h-3.4V27H7Z M12.1 14.2h3.6c2.3 0 3.7-1.4 3.7-3.5s-1.4-3.4-3.7-3.4h-3.6v6.9Z" />
           </svg>
         </div>
         <div class="sp-word">RAMICORE</div>
@@ -137,13 +129,7 @@
         try { if (window.PrometheusHost && window.PrometheusHost.theme) window.PrometheusHost.theme(!light); } catch (e) {}
         reveal();
         // Only the in-app switches stop it: Windows with "animation effects" off reports reduced motion on many machines.
-        if (p.motion === false || p.splash === false) return el.classList.add("sp-still");
-        for (var i = 0; i < 14; i++) {
-          var e = document.createElement("span");
-          e.className = "sp-ember";
-          e.style.cssText = "left:" + (30 + Math.random() * 40) + "%;--dx:" + (Math.random() * 80 - 40) + "px;animation-duration:" + (2.4 + Math.random() * 2.2) + "s;animation-delay:" + (0.6 + Math.random() * 2) + "s";
-          el.appendChild(e);
-        }
+        if (p.motion === false || p.splash === false) return el.classList.add("sp-still");
       })();
     </script>
     <div id="root"></div>

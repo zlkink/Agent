@@ -1,9 +1,10 @@
 import clsx from "clsx";
-import { AlertTriangle, Check, ChevronDown, Download, LoaderCircle, RotateCw, Trash2, X } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, Download, FolderPlus, LoaderCircle, RotateCw, Trash2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { defineMessages, useT } from "../lib/i18n.ts";
 import {
 	cancelRuntime,
+	createProjectVenv,
 	dismissRequest,
 	dismissRuntimeJob,
 	formatBytes,
@@ -20,7 +21,7 @@ import {
 	uninstallRuntime,
 	useRuntimes,
 } from "../lib/runtimes.ts";
-import { openSettings, toast } from "../lib/store.ts";
+import { openSettings, toast, useStore } from "../lib/store.ts";
 import { ToolStore } from "./ToolStore.tsx";
 import { Button, PageHeader } from "./ui.tsx";
 
@@ -66,6 +67,11 @@ const M = defineMessages({
 		msvcName: "VS 生成工具",
 		installMsvc: "安装 VS 生成工具",
 		msvcHint: "体积数 GB，会弹出管理员授权窗口。装好后重新安装 Rust 即可改用 MSVC。",
+		venv: "创建 .venv",
+		venvBusy: "创建中…",
+		venvDone: "已在项目创建虚拟环境：{path}",
+		venvNoProject: "请先打开一个工作区",
+		venvHint: "让该项目里的 Agent 使用 .venv 中的 Python（uv 或系统 Python）",
 	},
 	en: {
 		title: "Runtimes",
@@ -108,6 +114,11 @@ const M = defineMessages({
 		msvcName: "VS Build Tools",
 		installMsvc: "Install VS Build Tools",
 		msvcHint: "Several GB, and Windows asks for administrator rights. Reinstall Rust afterwards to switch to MSVC.",
+		venv: "Create .venv",
+		venvBusy: "Creating…",
+		venvDone: "Created a virtual environment: {path}",
+		venvNoProject: "Open a workspace first",
+		venvHint: "Makes the agent in this project use the Python in .venv (uv or system Python)",
 	},
 });
 
@@ -174,6 +185,21 @@ function Row({ item }: { item: RuntimeItem }) {
 	const running = item.installing || (job != null && !job.finished);
 	const [offlineOpen, setOffline] = useState(false);
 	const [path, setPath] = useState("");
+	const [venvBusy, setVenvBusy] = useState(false);
+	const project = useStore((s) => s.session?.cwd ?? s.workspaces[0]?.path ?? "");
+
+	const makeVenv = async () => {
+		if (!project) return toast(t("venvNoProject"), "warning");
+		setVenvBusy(true);
+		try {
+			const r = await createProjectVenv(project, item.system);
+			toast(t("venvDone", { path: r.path }));
+		} catch (err) {
+			toast(String(err), "error");
+		} finally {
+			setVenvBusy(false);
+		}
+	};
 
 	const remove = async () => {
 		if (!window.confirm(t("confirmUninstall", { name: item.name }))) return;
@@ -214,6 +240,12 @@ function Row({ item }: { item: RuntimeItem }) {
 							</Button>
 						) : (
 							<>
+								{item.id === "python" && (
+									<Button variant="outline" disabled={venvBusy || !project} title={t("venvHint")} onClick={() => void makeVenv()}>
+										{venvBusy ? <LoaderCircle className="size-4 animate-spin" /> : <FolderPlus className="size-4" />}
+										{venvBusy ? t("venvBusy") : t("venv")}
+									</Button>
+								)}
 								{item.installed && (
 									<Button variant="danger" onClick={() => void remove()}>
 										<Trash2 className="size-4" />

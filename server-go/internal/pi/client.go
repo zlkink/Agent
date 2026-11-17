@@ -123,7 +123,7 @@ func (c *Client) readStdout(r io.Reader) {
 			continue
 		}
 		if head.Type == "extension_ui_request" {
-			// Keep PI from blocking on a dialog the POC has no UI for.
+			// Keep PI from blocking on a dialog this host has no UI for.
 			c.respondExtension(head.ID, head.Method)
 			continue
 		}

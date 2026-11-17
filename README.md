@@ -8,7 +8,7 @@
 
 开源、可自托管的 AI Agent 工作台。出门用手机接着电脑里的任务，中途换 Agent 也不用另开会话；写文件前先问你，发给模型前先脱敏。
 
-[![Release](https://img.shields.io/github/v/release/Mouseww/Prometheus?style=flat-square&color=ffc061)](https://github.com/Mouseww/Prometheus/releases)
+[![Release](https://img.shields.io/github/v/release/zlkink/Agent?style=flat-square&color=ffc061)](https://github.com/zlkink/Agent/releases)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue?style=flat-square)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A5%2022.19-339933?style=flat-square&logo=node.js&logoColor=white)](#快速开始)
 
@@ -45,29 +45,21 @@
 环境：Node ≥ 22.19（推荐 24）、pnpm 10。桌面版另需 Rust ≥ 1.77 和 [Tauri 2 依赖](https://tauri.app/start/prerequisites/)。
 
 ```bash
-git clone https://github.com/Mouseww/Prometheus.git
+git clone https://github.com/zlkink/Agent.git
 cd Prometheus
 pnpm install
 ```
 
 | 方式 | 命令 | 说明 |
 | --- | --- | --- |
-| TUI | `pnpm tui` | 终端交互界面 |
-| Web | `pnpm --filter @prometheus/web build && pnpm dev:server` | 访问 http://127.0.0.1:7420 |
-| 桌面 | `pnpm dev:desktop` | 自动拉起本地服务端 |
+| Web UI | `pnpm build:web` | 输出到 `apps/web/dist`，由 Go 宿主托管 |
+| Go 宿主 | `cd server-go && go run ./cmd/prometheus -serve -allow-write` | HTTP/WS + Agent 运行时 |
+| 桌面安装包 | 见 `.github/workflows/helixagent-release.yml` | Windows / Linux / macOS 自动构建 |
 
 首次启动后到 **设置 → AI 网关** 添加一个模型端点，即可开始对话。
 
-### Docker
-
-```bash
-docker build -t prometheus .
-docker run -p 7420:7420 -e PROMETHEUS_TOKEN=<至少16位随机串> \
-  -v prometheus-data:/data -v $PWD:/workspace prometheus
-```
-
 > [!IMPORTANT]
-> 监听非回环地址必须设置 `PROMETHEUS_TOKEN`。公网部署请放在 HTTPS 反向代理之后。
+> 监听非回环地址时必须设置访问令牌；公网部署请放在 HTTPS 反向代理之后。
 
 ## Agent 运行时
 

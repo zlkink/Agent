@@ -1,4 +1,4 @@
-// Prometheus TypeScript plugin host (POC).
+// RamiCore TypeScript plugin host.
 //
 // Loads bundled `definePlugin` modules with a small PluginContext and exposes
 // their tools/context over HTTP so the Go tool bus can merge them with its own

@@ -1,6 +1,6 @@
 // Package store persists the Go host's sessions, workspaces and settings.
 // It deliberately lives in its own directory (default ~/.prometheus/go-poc)
-// so the proof of concept never rewrites the Node backend's data.
+// so the Go host never rewrites the legacy Node backend's data.
 package store
 
 import (

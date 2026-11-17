@@ -61,6 +61,10 @@ export interface Viewport {
 export interface BrowserState {
 	status: "stopped" | "starting" | "running" | "error";
 	error?: string;
+	/** Extra explanation while starting (e.g. waiting for Chrome to allow remote debugging). */
+	startingHint?: string;
+	/** System browser: Chrome is running but remote debugging was not enabled. */
+	needsRemoteDebugging?: boolean;
 	mode: BrowserMode;
 	browser?: { kind: string; path: string; product: string };
 	/** No usable browser was found; the UI offers to download one. */

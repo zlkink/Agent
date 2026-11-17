@@ -109,8 +109,10 @@ const M = defineMessages({
 		window: "窗口",
 		idleUpdate: "闲时自动更新",
 		idleUpdateHint: "没有 Agent 在运行（且持续两分钟）时，自动下载并安装新版本，然后重启 RamiCore。运行中的任务不会被打断。仅桌面版。",
-		closeToTray: "关闭时最小化到托盘",
-		closeToTrayHint: "关闭窗口后 RamiCore 继续在后台运行，会话不会中断；点击托盘图标查看运行中的会话，右键可显示、隐藏或退出。",
+		closeAction: "关闭窗口时",
+		closeActionHint: "最小化到托盘会保持会话在后台运行；直接退出会停止本地服务。",
+		closeTray: "最小化到托盘",
+		closeQuit: "直接退出程序",
 		autoCompact: "自动压缩上下文",
 		autoCompactHint: "上下文接近模型窗口上限时自动生成摘要并压缩。与 PI TUI 共享此设置。",
 		compactPercent: "压缩阈值",
@@ -123,9 +125,9 @@ const M = defineMessages({
 		chatWidth: "对话宽度",
 		chatWidthHint: "也可以在对话页面里拖动内容两侧的边缘调整，双击边缘恢复自适应。",
 		motion: "界面动效",
-		motionHint: "窗口过渡、火苗光标、切换主题时的扩散动画等。关闭后界面立即切换。",
+		motionHint: "窗口过渡、输入光标、切换主题时的扩散动画等。关闭后界面立即切换。",
 		splash: "启动动画",
-		splashHint: "打开软件时播放“点火”开屏动画；关闭后启动期间只显示静态 Logo。",
+		splashHint: "打开软件时播放品牌开屏动画；关闭后启动期间只显示静态 Logo。",
 		chatWidthAuto: "自适应",
 		sendMode: "回复中发送时",
 		sendModeHint: "Agent 还在回复时发送新消息：排队是等本轮结束后再发，插队是在当前工具调用结束后立即插入。也可以在发送按钮旁的箭头上切换。",
@@ -225,8 +227,10 @@ const M = defineMessages({
 		window: "Window",
 		idleUpdate: "Update when idle",
 		idleUpdateHint: "When no agent has been running for two minutes, download and install new versions automatically, then restart RamiCore. Running tasks are never interrupted. Desktop only.",
-		closeToTray: "Minimize to tray on close",
-		closeToTrayHint: "Closing the window keeps RamiCore running in the background so sessions are not interrupted. Click the tray icon to see running sessions; right-click to show, hide or quit.",
+		closeAction: "When closing the window",
+		closeActionHint: "Minimize to tray keeps sessions running in the background; quit stops the local server.",
+		closeTray: "Minimize to tray",
+		closeQuit: "Quit RamiCore",
 		autoCompact: "Auto-compact context",
 		autoCompactHint: "Summarise and compact automatically when the context nears the model's window. Shared with the PI TUI.",
 		compactPercent: "Compaction threshold",
@@ -239,9 +243,9 @@ const M = defineMessages({
 		chatWidth: "Chat width",
 		chatWidthHint: "You can also drag the edges beside the chat column; double-click an edge to go back to automatic.",
 		motion: "Interface motion",
-		motionHint: "Window transitions, the flame cursor, the ripple when switching themes. Off switches instantly.",
+		motionHint: "Window transitions, the typing caret, the ripple when switching themes. Off switches instantly.",
 		splash: "Startup animation",
-		splashHint: "Play the ignition splash when the app opens; when off, a still logo covers start-up instead.",
+		splashHint: "Play the branded splash when the app opens; when off, a still logo covers start-up instead.",
 		chatWidthAuto: "Auto",
 		sendMode: "When sending during a reply",
 		sendModeHint: "What a message does when the agent is still replying: Queue waits for the turn to end, Steer cuts in after the current tool call. You can also switch from the arrow beside the send button.",
@@ -670,8 +674,11 @@ function GeneralSettings() {
 							<Row label={t("idleUpdate")} hint={t("idleUpdateHint")}>
 								<Toggle checked={prefs.idleUpdate} onChange={(idleUpdate) => setPrefs({ idleUpdate })} />
 							</Row>
-							<Row label={t("closeToTray")} hint={t("closeToTrayHint")}>
-								<Toggle checked={prefs.closeToTray} onChange={(closeToTray) => setPrefs({ closeToTray })} />
+							<Row label={t("closeAction")} hint={t("closeActionHint")}>
+								<Select className="w-44" value={prefs.closeToTray ? "tray" : "quit"} onChange={(e) => setPrefs({ closeToTray: e.target.value === "tray" })}>
+									<option value="tray">{t("closeTray")}</option>
+									<option value="quit">{t("closeQuit")}</option>
+								</Select>
 							</Row>
 						</Section>
 					)}

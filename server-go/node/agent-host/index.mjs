@@ -1,4 +1,4 @@
-// Prometheus Go host — Node agent-host sidecar.
+// RamiCore — Node agent-host sidecar.
 //
 // It owns the official Claude Agent SDK (the supported Claude integration
 // surface) and translates SDK messages into a small neutral event protocol:
@@ -60,6 +60,9 @@ if (mcpUrl) {
 
 let q = null;
 let pendingModel = '';
+let nativeSessionId = '';
+let activeModel = model;
+let restartForModel = false;
 let finished = false;
 let busy = false;
 let sawTextDelta = false;
@@ -106,7 +109,7 @@ async function* input() {
   }
 }
 
-function baseEnv() {
+function baseEnv(targetModel) {
   const env = { ...process.env };
   env.CLAUDE_AGENT_SDK_CLIENT_APP = 'prometheus-go';
   env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = '1';
@@ -118,15 +121,31 @@ function baseEnv() {
   if (gateway) {
     env.ANTHROPIC_BASE_URL = process.env.ANTHROPIC_BASE_URL;
     env.ANTHROPIC_AUTH_TOKEN = process.env.ANTHROPIC_AUTH_TOKEN;
-    env.ANTHROPIC_MODEL = model;
-    env.ANTHROPIC_SMALL_FAST_MODEL = model;
+    const selected = targetModel || model;
+    env.ANTHROPIC_MODEL = selected;
+    env.ANTHROPIC_SMALL_FAST_MODEL = selected;
     delete env.ANTHROPIC_API_KEY;
   }
   return env;
 }
 
+function restartQuery() {
+  restartForModel = false;
+  const old = q;
+  q = null;
+  // The old input generator may be parked on this resolver; drop it so the
+  // new query gets the next prompt instead of waking the closed one.
+  wake = null;
+  try {
+    old?.close?.();
+  } catch {
+    // Closing an already-finished query is harmless.
+  }
+}
+
 function ensureQuery() {
   if (q) return;
+  const useModel = pendingModel || model;
   const options = {
     cwd,
     includePartialMessages: true,
@@ -139,7 +158,7 @@ function ensureQuery() {
       type: 'preset',
       preset: 'claude_code',
       append:
-        'You are running inside the Prometheus Go host proof-of-concept. Keep answers short.' +
+        'You are running inside RamiCore.' +
         (staticContext ? `\n\n${staticContext}` : ''),
     },
     hooks: {
@@ -154,30 +173,42 @@ function ensureQuery() {
         },
       ],
     },
-    env: baseEnv(),
+    env: baseEnv(useModel),
     canUseTool: async (toolName, input) => askPermission(toolName, input),
     stderr: (data) => log(data),
   };
-  if (pendingModel || model) options.model = pendingModel || model;
+  if (useModel) options.model = useModel;
+  // Changing models on a running gateway query makes the CLI validate the id
+  // against the API, which rejects gateway-prefixed ids ("Couldn't confirm
+  // model ... with the API") and silently leaves the previous model in place.
+  // A fresh query with `resume` picks up the new model and keeps the history.
+  if (nativeSessionId) options.resume = nativeSessionId;
   if (executable) options.pathToClaudeCodeExecutable = executable;
   if (gateway) options.settingSources = ['project', 'local'];
 
-  q = query({ prompt: input(), options });
+  const instance = query({ prompt: input(), options });
+  q = instance;
+  activeModel = useModel;
   (async () => {
     try {
-      for await (const msg of q) await handle(msg);
+      for await (const msg of instance) await handle(msg);
     } catch (err) {
-      emit({ type: 'error', message: err?.message || String(err) });
+      if (q === instance) emit({ type: 'error', message: err?.message || String(err) });
     } finally {
-      busy = false;
+      if (q === instance) busy = false;
     }
   })();
 }
 
-function toolStart(id, name) {
-  if (!id || seenTools.has(id)) return;
-  seenTools.add(id);
-  emit({ type: 'tool_start', id, name });
+function toolStart(id, name, input, complete = false) {
+  if (!id || !name) return;
+  if (!seenTools.has(id)) {
+    seenTools.add(id);
+    emit({ type: 'tool_start', id, name });
+  }
+  // The stream announces a tool with an empty input; the assistant message has
+  // the complete arguments. Send them separately so the UI can show the command.
+  if (complete) emit({ type: 'tool_input', id, name, input: input ?? {} });
 }
 
 async function handle(msg) {
@@ -185,6 +216,8 @@ async function handle(msg) {
   switch (msg.type) {
     case 'system':
       if (msg.subtype === 'init') {
+        if (msg.session_id) nativeSessionId = String(msg.session_id);
+        if (msg.model) activeModel = String(msg.model);
         emit({ type: 'init', model: msg.model, sessionId: msg.session_id });
       }
       return;
@@ -214,7 +247,7 @@ async function handle(msg) {
         if (block?.type === 'text' && block.text && !sawTextDelta) {
           emit({ type: 'text_delta', text: block.text });
         } else if (block?.type === 'tool_use') {
-          toolStart(block.id, block.name);
+          toolStart(block.id, block.name, block.input, true);
         }
       }
       return;
@@ -225,7 +258,7 @@ async function handle(msg) {
       if (!Array.isArray(content)) return;
       for (const block of content) {
         if (block?.type === 'tool_result') {
-          emit({ type: 'tool_result', id: block.tool_use_id, isError: !!block.is_error });
+          emit({ type: 'tool_result', id: block.tool_use_id, isError: !!block.is_error, result: block.content });
         }
       }
       return;
@@ -268,6 +301,7 @@ function onPrompt(text, context, images = []) {
   turnContext = context || '';
   sawTextDelta = false;
   seenTools.clear();
+  if (restartForModel && q) restartQuery();
   ensureQuery();
   const parts = [];
   if (text) parts.push({ type: 'text', text });
@@ -339,7 +373,13 @@ rl.on('line', (line) => {
     const model = String(msg.params?.model ?? '');
     if (model) {
       pendingModel = model;
-      q?.setModel?.(model)?.catch?.(() => {});
+      // Restart on the next prompt when the model really changes. Calling the
+      // SDK's setModel here is not enough: gateway-prefixed ids fail the CLI's
+      // API check and the previous model keeps answering.
+      if (q && model !== activeModel) {
+        restartForModel = true;
+        if (!busy) restartQuery();
+      }
     }
   } else if (msg.method === 'abort') {
     q?.interrupt?.().catch(() => {});

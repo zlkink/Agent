@@ -327,6 +327,8 @@ function treeSignature(n) {
 // ../../../plugins/browser/src/browser.ts
 import { existsSync as existsSync4 } from "node:fs";
 import { mkdir as mkdir4, readFile as readFile3, rename as rename3, rm as rm3, writeFile as writeFile4 } from "node:fs/promises";
+import { connect } from "node:net";
+import { homedir as homedir2 } from "node:os";
 import { basename, extname, join as join4 } from "node:path";
 
 // ../../../plugins/browser/src/cdp.ts
@@ -1444,9 +1446,54 @@ function toUrl(input, searchUrl) {
 function checkUrl(url) {
   if (BLOCKED_SCHEMES.test(url.trim())) throw new UserFacingError(`\u4E0D\u5141\u8BB8\u6253\u5F00\u8FD9\u4E2A\u5730\u5740\uFF1A${url.slice(0, 80)}`);
 }
+function devToolsActivePortFiles() {
+  const home = homedir2();
+  if (process.platform === "win32") {
+    const local = process.env.LOCALAPPDATA ?? join4(home, "AppData", "Local");
+    const bases = ["Google/Chrome", "Google/Chrome Beta", "Google/Chrome Dev", "Google/Chrome SxS", "Microsoft/Edge", "Chromium"];
+    return bases.map((b) => join4(local, b.split("/").join("\\"), "User Data", "DevToolsActivePort"));
+  }
+  if (process.platform === "darwin") {
+    const app = join4(home, "Library", "Application Support");
+    return ["Google/Chrome", "Google/Chrome Beta", "Google/Chrome Dev", "Google/Chrome Canary", "Microsoft Edge", "Chromium"].map(
+      (b) => join4(app, b, "DevToolsActivePort")
+    );
+  }
+  return [join4(home, ".config/google-chrome/DevToolsActivePort"), join4(home, ".config/chromium/DevToolsActivePort"), join4(home, ".config/microsoft-edge/DevToolsActivePort")];
+}
+async function readDevToolsActivePort() {
+  for (const file of devToolsActivePortFiles()) {
+    let text2;
+    try {
+      text2 = await readFile3(file, "utf8");
+    } catch {
+      continue;
+    }
+    const [rawPort, rawPath] = text2.split(String.fromCharCode(10)).map((l) => l.trim()).filter(Boolean);
+    const port = Number.parseInt(rawPort ?? "", 10);
+    if (!Number.isInteger(port) || port <= 0 || port > 65535 || !rawPath?.startsWith("/devtools/browser/")) continue;
+    if (!await portOpen(port)) continue;
+    return { port, wsUrl: `ws://127.0.0.1:${port}${rawPath}` };
+  }
+  return void 0;
+}
+function portOpen(port) {
+  return new Promise((resolve3) => {
+    const socket = connect({ host: "127.0.0.1", port });
+    const done = (ok) => {
+      socket.destroy();
+      resolve3(ok);
+    };
+    socket.setTimeout(700, () => done(false));
+    socket.once("connect", () => done(true));
+    socket.once("error", () => done(false));
+  });
+}
 var BrowserCore = class {
   status = "stopped";
   error;
+  startingHint;
+  needsRemoteDebugging = false;
   mode = "headless";
   found;
   product = "";
@@ -1539,6 +1586,8 @@ var BrowserCore = class {
     return {
       status: this.status,
       ...this.error ? { error: this.error } : {},
+      ...this.startingHint ? { startingHint: this.startingHint } : {},
+      ...this.needsRemoteDebugging ? { needsRemoteDebugging: true } : {},
       mode: this.mode,
       ...found ? { browser: { kind: found.kind, path: found.path, product: this.product } } : {},
       missing: this.mode === "system" ? false : !found,
@@ -1591,6 +1640,8 @@ var BrowserCore = class {
     }
     this.status = "starting";
     this.error = void 0;
+    this.startingHint = void 0;
+    this.needsRemoteDebugging = false;
     this.changed();
     try {
       const launched = await launchBrowser(
@@ -1632,17 +1683,30 @@ var BrowserCore = class {
   async attach(port) {
     this.status = "starting";
     this.error = void 0;
+    this.startingHint = void 0;
+    this.needsRemoteDebugging = false;
     this.changed();
     try {
-      const res = await fetch(`http://127.0.0.1:${port}/json/version`, { signal: AbortSignal.timeout(5e3) });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const meta = await res.json();
-      if (!meta.webSocketDebuggerUrl) throw new Error("\u8C03\u8BD5\u7AEF\u53E3\u6CA1\u6709\u8FD4\u56DE WebSocket \u5730\u5740");
-      const conn = await connectWebSocket(meta.webSocketDebuggerUrl);
+      const active = await readDevToolsActivePort();
+      let wsUrl = active?.wsUrl;
+      let browser = "Chrome";
+      if (active) {
+        this.startingHint = "\u8BF7\u5728\u5F39\u51FA\u7684 Chrome \u7A97\u53E3\u4E2D\u70B9\u51FB\u201C\u5141\u8BB8\u8FDC\u7A0B\u8C03\u8BD5\u201D";
+        this.changed();
+      } else {
+        const res = await fetch(`http://127.0.0.1:${port}/json/version`, { signal: AbortSignal.timeout(3e3) });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const meta = await res.json();
+        if (!meta.webSocketDebuggerUrl) throw new Error("\u8C03\u8BD5\u7AEF\u53E3\u6CA1\u6709\u8FD4\u56DE WebSocket \u5730\u5740");
+        wsUrl = meta.webSocketDebuggerUrl;
+        browser = meta.Browser ?? browser;
+      }
+      const conn = await connectWebSocket(wsUrl, active ? 18e4 : 1e4);
+      this.startingHint = void 0;
       const version = await conn.send("Browser.getVersion", {});
       const userAgent = version.userAgent ?? "";
-      this.launched = { conn, userAgent, product: version.product ?? meta.Browser ?? "Chrome", attached: true };
-      this.product = version.product ?? meta.Browser ?? "Chrome";
+      this.launched = { conn, userAgent, product: version.product ?? browser, attached: true };
+      this.product = version.product ?? browser;
       this.rawUa = userAgent;
       this.ua = userAgent;
       conn.on((e) => this.onEvent(e));
@@ -1654,15 +1718,18 @@ var BrowserCore = class {
         });
       }
       this.status = "running";
+      this.needsRemoteDebugging = false;
       this.changed();
       await this.waitFirstTab();
       this.updateScreencast();
     } catch (err) {
+      this.startingHint = void 0;
       this.status = "error";
+      this.needsRemoteDebugging = this.mode === "system";
       this.error = err instanceof Error ? err.message : String(err);
       this.changed();
       throw new UserFacingError(
-        `\u8FDE\u63A5\u7CFB\u7EDF Chrome \u5931\u8D25\uFF08\u8C03\u8BD5\u7AEF\u53E3 ${port}\uFF09\uFF1A${this.error}\u3002\u8BF7\u5148\u7528 --remote-debugging-port=${port} \u542F\u52A8 Chrome\uFF0C\u6216\u53D6\u6D88\u201C\u4F7F\u7528\u7CFB\u7EDF\u6D4F\u89C8\u5668\u201D\u4F7F\u7528\u5185\u7F6E\u6D4F\u89C8\u5668\u3002`
+        `\u8FDE\u63A5\u7CFB\u7EDF Chrome \u5931\u8D25\uFF1A${this.error}\u3002\u8BF7\u5728 Chrome \u6253\u5F00 chrome://inspect/#remote-debugging\uFF0C\u52FE\u9009\u201CAllow remote debugging\u201D\uFF0C\u518D\u91CD\u8BD5\uFF1B\u6216\u5E26 --remote-debugging-port=${port} \u542F\u52A8 Chrome\u3002`
       );
     }
   }

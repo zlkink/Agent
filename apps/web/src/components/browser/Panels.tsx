@@ -3,6 +3,7 @@
 import clsx from "clsx";
 import { AlertTriangle, Download, FileUp, Globe, LoaderCircle, Power, RotateCw, Search } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { copyToClipboard } from "../../lib/clipboard.ts";
 import { installRuntime, useRuntimes } from "../../lib/runtimes.ts";
 import { defineMessages, useT } from "../../lib/i18n.ts";
 import { Button, Input } from "../ui.tsx";
@@ -49,6 +50,13 @@ const M = defineMessages({
 		uploading: "正在上传 {name}… {pct}%",
 		startTitle: "新标签页",
 		startHint: "Agent 和你用的是同一个浏览器：它打开的页面你能实时看到，也可以随时接手。",
+		remoteDebugTitle: "需要开启 Chrome 远程调试",
+		remoteDebugHint: "RamiCore 要连接你当前的 Chrome，需要先在 Chrome 里允许远程调试。",
+		remoteDebugStep1: "在 Chrome 地址栏打开下面的地址",
+		remoteDebugStep2: "勾选 “Allow remote debugging for this browser instance”",
+		remoteDebugStep3: "回到 RamiCore 点“重试”，Chrome 弹窗时点“允许远程调试”",
+		copyAddress: "复制地址",
+		copied: "已复制",
 		searchPlaceholder: "搜索，或者输入网址",
 	},
 	en: {
@@ -90,6 +98,13 @@ const M = defineMessages({
 		uploading: "Uploading {name}… {pct}%",
 		startTitle: "New tab",
 		startHint: "You and the agent share this browser: you see the pages it opens as it works, and can take over at any time.",
+		remoteDebugTitle: "Enable Chrome remote debugging",
+		remoteDebugHint: "RamiCore needs permission to connect to your running Chrome.",
+		remoteDebugStep1: "Open this address in Chrome",
+		remoteDebugStep2: "Tick “Allow remote debugging for this browser instance”",
+		remoteDebugStep3: "Come back and press Retry; when Chrome asks, choose Allow",
+		copyAddress: "Copy address",
+		copied: "Copied",
 		searchPlaceholder: "Search or type a URL",
 	},
 });
@@ -142,6 +157,7 @@ export function StatusScreen({ state, startError, onStart, onSaveSettings }: { s
 	const [path, setPath] = useState("");
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const [copied, setCopied] = useState(false);
 
 	if (!state)
 		return (
@@ -167,7 +183,7 @@ export function StatusScreen({ state, startError, onStart, onSaveSettings }: { s
 			<Center>
 				<div className="flex items-center gap-2 text-sm text-ink-400">
 					<LoaderCircle className="size-4 animate-spin" />
-					{t("starting")}
+					{state.startingHint ?? t("starting")}
 				</div>
 			</Center>
 		);
@@ -251,8 +267,26 @@ export function StatusScreen({ state, startError, onStart, onSaveSettings }: { s
 			<Center>
 				<div className="max-w-md space-y-3 text-center">
 					<AlertTriangle className="mx-auto size-8 text-rose-400" />
-					<h3 className="font-display text-lg font-semibold">{t("failed")}</h3>
-					<p className="text-sm break-words text-ink-400">{state.error ?? startError}</p>
+					<h3 className="font-display text-lg font-semibold">{state.needsRemoteDebugging ? t("remoteDebugTitle") : t("failed")}</h3>
+					{state.needsRemoteDebugging ? (
+						<div className="space-y-3 text-left text-sm text-ink-300">
+							<p>{t("remoteDebugHint")}</p>
+							<ol className="list-decimal space-y-2 pl-5 text-ink-400">
+								<li>{t("remoteDebugStep1")}</li>
+								<li>{t("remoteDebugStep2")}</li>
+								<li>{t("remoteDebugStep3")}</li>
+							</ol>
+							<div className="flex items-center gap-2 rounded-lg bg-ink-950/60 px-3 py-2 font-mono text-xs text-ember-200">
+								<span className="min-w-0 flex-1 truncate">chrome://inspect/#remote-debugging</span>
+								<Button variant="outline" className="px-2 py-1 text-xs" onClick={() => void copyToClipboard("chrome://inspect/#remote-debugging").then(() => setCopied(true))}>
+									{copied ? t("copied") : t("copyAddress")}
+								</Button>
+							</div>
+							{state.error && <p className="text-xs break-words text-ink-500">{state.error}</p>}
+						</div>
+					) : (
+						<p className="text-sm break-words text-ink-400">{state.error ?? startError}</p>
+					)}
 					<Button variant="primary" onClick={onStart}>
 						<RotateCw className="size-4" />
 						{t("retry")}

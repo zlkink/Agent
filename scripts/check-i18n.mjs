@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 const scan = process.argv.slice(2);
-const roots = scan.length ? scan : ["apps/web/src", "apps/server/src", "packages"];
+const roots = scan.length ? scan : ["apps/web/src"];
 
 const files = [];
 function walk(d) {

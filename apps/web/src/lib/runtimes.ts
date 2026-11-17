@@ -146,6 +146,17 @@ export async function refreshRuntimes(): Promise<void> {
 	}
 }
 
+export interface VenvInfo {
+	path: string;
+	python: string;
+	manager: string;
+}
+
+/** Creates `<project>/.venv` with uv when it is installed, otherwise with the system Python. */
+export function createProjectVenv(project: string, python?: string | null): Promise<VenvInfo> {
+	return invoke<VenvInfo>("runtime_create_venv", { path: project, python: python ?? null });
+}
+
 function blankJob(id: string): RuntimeJob {
 	return { id, stage: "prepare", message: "", done: 0, total: 0, speed: 0, startedAt: Date.now(), logs: [], finished: false, ok: false, error: null, dismissed: false };
 }

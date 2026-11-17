@@ -1,6 +1,8 @@
 // The one browser the app shares between the user (through the streamed view) and the agent (through tools).
 import { existsSync } from "node:fs";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { connect } from "node:net";
+import { homedir } from "node:os";
 import { basename, extname, join } from "node:path";
 import type { CdpConnection, CdpEvent } from "./cdp.ts";
 import { CdpSession, connectWebSocket } from "./cdp.ts";
@@ -51,9 +53,65 @@ export function checkUrl(url: string): void {
 	if (BLOCKED_SCHEMES.test(url.trim())) throw new UserFacingError(`不允许打开这个地址：${url.slice(0, 80)}`);
 }
 
+/**
+ * Chrome 144's chrome://inspect/#remote-debugging starts a debugging server without
+ * the legacy /json/version HTTP endpoint. It writes the port and the browser
+ * WebSocket path to DevToolsActivePort in the user-data directory instead, and the
+ * first WebSocket handshake waits for the user to press "Allow remote debugging?".
+ */
+function devToolsActivePortFiles(): string[] {
+	const home = homedir();
+	if (process.platform === "win32") {
+		const local = process.env.LOCALAPPDATA ?? join(home, "AppData", "Local");
+		const bases = ["Google/Chrome", "Google/Chrome Beta", "Google/Chrome Dev", "Google/Chrome SxS", "Microsoft/Edge", "Chromium"];
+		return bases.map((b) => join(local, b.split("/").join("\\"), "User Data", "DevToolsActivePort"));
+	}
+	if (process.platform === "darwin") {
+		const app = join(home, "Library", "Application Support");
+		return ["Google/Chrome", "Google/Chrome Beta", "Google/Chrome Dev", "Google/Chrome Canary", "Microsoft Edge", "Chromium"].map((b) =>
+			join(app, b, "DevToolsActivePort"),
+		);
+	}
+	return [join(home, ".config/google-chrome/DevToolsActivePort"), join(home, ".config/chromium/DevToolsActivePort"), join(home, ".config/microsoft-edge/DevToolsActivePort")];
+}
+
+async function readDevToolsActivePort(): Promise<{ port: number; wsUrl: string } | undefined> {
+	for (const file of devToolsActivePortFiles()) {
+		let text: string;
+		try {
+			text = await readFile(file, "utf8");
+		} catch {
+			continue;
+		}
+		const [rawPort, rawPath] = text.split(String.fromCharCode(10)).map((l) => l.trim()).filter(Boolean);
+		const port = Number.parseInt(rawPort ?? "", 10);
+		if (!Number.isInteger(port) || port <= 0 || port > 65535 || !rawPath?.startsWith("/devtools/browser/")) continue;
+		// The file can be left over from an earlier Chrome run. A TCP check is
+		// enough here: in Chrome 144+ /json/version is deliberately absent.
+		if (!(await portOpen(port))) continue;
+		return { port, wsUrl: `ws://127.0.0.1:${port}${rawPath}` };
+	}
+	return undefined;
+}
+
+function portOpen(port: number): Promise<boolean> {
+	return new Promise((resolve) => {
+		const socket = connect({ host: "127.0.0.1", port });
+		const done = (ok: boolean) => {
+			socket.destroy();
+			resolve(ok);
+		};
+		socket.setTimeout(700, () => done(false));
+		socket.once("connect", () => done(true));
+		socket.once("error", () => done(false));
+	});
+}
+
 export class BrowserCore implements TabHost {
 	status: BrowserState["status"] = "stopped";
 	error: string | undefined;
+	startingHint: string | undefined;
+	needsRemoteDebugging = false;
 	mode: BrowserMode = "headless";
 	found: FoundBrowser | undefined;
 	product = "";
@@ -156,6 +214,8 @@ export class BrowserCore implements TabHost {
 		return {
 			status: this.status,
 			...(this.error ? { error: this.error } : {}),
+			...(this.startingHint ? { startingHint: this.startingHint } : {}),
+			...(this.needsRemoteDebugging ? { needsRemoteDebugging: true } : {}),
 			mode: this.mode,
 			...(found ? { browser: { kind: found.kind, path: found.path, product: this.product } } : {}),
 			missing: this.mode === "system" ? false : !found,
@@ -214,6 +274,8 @@ export class BrowserCore implements TabHost {
 		}
 		this.status = "starting";
 		this.error = undefined;
+		this.startingHint = undefined;
+		this.needsRemoteDebugging = false;
 		this.changed();
 		try {
 			const launched = await launchBrowser(
@@ -256,17 +318,34 @@ export class BrowserCore implements TabHost {
 	private async attach(port: number): Promise<void> {
 		this.status = "starting";
 		this.error = undefined;
+		this.startingHint = undefined;
+		this.needsRemoteDebugging = false;
 		this.changed();
 		try {
-			const res = await fetch(`http://127.0.0.1:${port}/json/version`, { signal: AbortSignal.timeout(5000) });
-			if (!res.ok) throw new Error(`HTTP ${res.status}`);
-			const meta = (await res.json()) as { webSocketDebuggerUrl?: string; Browser?: string };
-			if (!meta.webSocketDebuggerUrl) throw new Error("调试端口没有返回 WebSocket 地址");
-			const conn = await connectWebSocket(meta.webSocketDebuggerUrl);
+			// Chrome 144+ with chrome://inspect/#remote-debugging enabled writes the
+			// real port and browser WebSocket path here. Do not probe /json/version:
+			// that endpoint is absent in this mode, and the WebSocket handshake itself
+			// is what asks Chrome to show the "Allow remote debugging?" dialog.
+			const active = await readDevToolsActivePort();
+			let wsUrl = active?.wsUrl;
+			let browser = "Chrome";
+			if (active) {
+				this.startingHint = "请在弹出的 Chrome 窗口中点击“允许远程调试”";
+				this.changed();
+			} else {
+				const res = await fetch(`http://127.0.0.1:${port}/json/version`, { signal: AbortSignal.timeout(3000) });
+				if (!res.ok) throw new Error(`HTTP ${res.status}`);
+				const meta = (await res.json()) as { webSocketDebuggerUrl?: string; Browser?: string };
+				if (!meta.webSocketDebuggerUrl) throw new Error("调试端口没有返回 WebSocket 地址");
+				wsUrl = meta.webSocketDebuggerUrl;
+				browser = meta.Browser ?? browser;
+			}
+			const conn = await connectWebSocket(wsUrl!, active ? 180_000 : 10_000);
+			this.startingHint = undefined;
 			const version = (await conn.send("Browser.getVersion", {})) as { product?: string; userAgent?: string };
 			const userAgent = version.userAgent ?? "";
-			this.launched = { conn, userAgent, product: version.product ?? meta.Browser ?? "Chrome", attached: true };
-			this.product = version.product ?? meta.Browser ?? "Chrome";
+			this.launched = { conn, userAgent, product: version.product ?? browser, attached: true };
+			this.product = version.product ?? browser;
 			this.rawUa = userAgent;
 			this.ua = userAgent;
 			conn.on((e) => this.onEvent(e));
@@ -277,15 +356,18 @@ export class BrowserCore implements TabHost {
 				if (target.type === "page") await conn.send("Target.attachToTarget", { targetId: target.targetId, flatten: true }).catch(() => {});
 			}
 			this.status = "running";
+			this.needsRemoteDebugging = false;
 			this.changed();
 			await this.waitFirstTab();
 			this.updateScreencast();
 		} catch (err) {
+			this.startingHint = undefined;
 			this.status = "error";
+			this.needsRemoteDebugging = this.mode === "system";
 			this.error = err instanceof Error ? err.message : String(err);
 			this.changed();
 			throw new UserFacingError(
-				`连接系统 Chrome 失败（调试端口 ${port}）：${this.error}。请先用 --remote-debugging-port=${port} 启动 Chrome，或取消“使用系统浏览器”使用内置浏览器。`,
+				`连接系统 Chrome 失败：${this.error}。请在 Chrome 打开 chrome://inspect/#remote-debugging，勾选“Allow remote debugging”，再重试；或带 --remote-debugging-port=${port} 启动 Chrome。`,
 			);
 		}
 	}

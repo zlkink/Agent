@@ -1,4 +1,4 @@
-// Prometheus Go host — Plan B proof of concept.
+// RamiCore Go host: HTTP/WS, agents, tools and the desktop sidecars.
 //
 //	agents  : detect Claude Code / Codex and check npm for newer versions
 //	prompt  : run one prompt through Go relay -> Claude Agent SDK sidecar
@@ -67,10 +67,28 @@ type setup struct {
 	token       string
 }
 
-func (s *setup) NewSidecar(sessionID, mcpURL, mcpToken, staticContext string) (*sidecar.Client, error) {
-	env := make(map[string]string, len(s.env)+3)
+func (s *setup) NewSidecar(sessionID, cwd, mcpURL, mcpToken, staticContext string) (*sidecar.Client, error) {
+	if cwd == "" {
+		cwd = s.cwd
+	}
+	env := make(map[string]string, len(s.env)+5)
 	for k, v := range s.env {
 		env[k] = v
+	}
+	env["PROMETHEUS_CWD"] = cwd
+	// A project virtualenv should win over the global Python: uv/venv layouts put
+	// the interpreter in Scripts (Windows) or bin (macOS/Linux).
+	for _, sub := range []string{"Scripts", "bin"} {
+		dir := filepath.Join(cwd, ".venv", sub)
+		if fi, err := os.Stat(dir); err == nil && fi.IsDir() {
+			env["VIRTUAL_ENV"] = filepath.Join(cwd, ".venv")
+			path := env["PATH"]
+			if path == "" {
+				path = os.Getenv("PATH")
+			}
+			env["PATH"] = dir + string(os.PathListSeparator) + path
+			break
+		}
 	}
 	if mcpURL != "" {
 		env["PROMETHEUS_MCP_URL"] = mcpURL
@@ -82,7 +100,7 @@ func (s *setup) NewSidecar(sessionID, mcpURL, mcpToken, staticContext string) (*
 	return sidecar.Start(sidecar.StartOptions{
 		Node:   s.node,
 		Script: s.script,
-		Dir:    s.cwd,
+		Dir:    cwd,
 		Env:    env,
 		OnStderr: func(line string) {
 			log.Printf("[sidecar] %s", line)
@@ -144,7 +162,7 @@ func main() {
 	if *prompt != "" {
 		runCtx, cancel := context.WithTimeout(ctx, *timeout)
 		defer cancel()
-		sc, err := s.NewSidecar("prompt", "", "", "")
+		sc, err := s.NewSidecar("prompt", "", "", "", "")
 		if err != nil {
 			log.Fatalf("sidecar: %v", err)
 		}

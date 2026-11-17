@@ -5,7 +5,7 @@ import { defineConfig } from "vite";
 
 const backend = process.env.PROMETHEUS_DEV_BACKEND ?? "http://127.0.0.1:7420";
 // The release workflow already requires this file's version to equal the tag.
-const { version } = JSON.parse(readFileSync(new URL("../desktop/src-tauri/tauri.conf.json", import.meta.url), "utf8")) as { version: string };
+const { version } = JSON.parse(readFileSync(new URL("../../server-go/desktop-shell/src-tauri/tauri.conf.json", import.meta.url), "utf8")) as { version: string };
 
 const legacy = process.env.WEB_BUILD_TARGET === "legacy-safari";
 // Safari before 16.4 rejects regex lookbehind at parse time, which blanks the whole app; the one literal that uses it is rewritten without it.

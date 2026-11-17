@@ -1337,6 +1337,50 @@ fn find_on_path(names: &[String]) -> Option<String> {
     None
 }
 
+/// `uv` is often installed in ~/.local/bin or ~/.cargo/bin, which a GUI launch does not
+/// always have on PATH. Finding it lets us use the Python versions it manages.
+fn find_uv() -> Option<PathBuf> {
+    if let Some(p) = find_on_path(&["uv".to_string()]) {
+        return Some(PathBuf::from(p));
+    }
+    let home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })?;
+    let home = PathBuf::from(home);
+    let mut candidates = vec![home.join(".local/bin/uv"), home.join(".cargo/bin/uv")];
+    if cfg!(windows) {
+        candidates = vec![home.join(".local/bin/uv.exe"), home.join(".cargo/bin/uv.exe")];
+        if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+            candidates.push(PathBuf::from(local).join("Programs/uv/uv.exe"));
+        }
+    } else {
+        candidates.push(PathBuf::from("/opt/homebrew/bin/uv"));
+        candidates.push(PathBuf::from("/usr/local/bin/uv"));
+    }
+    candidates.into_iter().find(|p| p.is_file())
+}
+
+/// Asks uv for the Python it manages (`uv python find`). This is what makes a
+/// machine with uv but no `python` on PATH count as having Python.
+fn find_uv_python() -> Option<String> {
+    let uv = find_uv()?;
+    let mut cmd = std::process::Command::new(uv);
+    cmd.args(["python", "find"]);
+    let out = quiet(&mut cmd).output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    for line in String::from_utf8_lossy(&out.stdout).lines().rev() {
+        let p = PathBuf::from(line.trim());
+        if p.is_file() {
+            return Some(p.to_string_lossy().into_owned());
+        }
+    }
+    None
+}
+
+fn find_python() -> Option<String> {
+    find_on_path(&["python3".to_string(), "python".to_string()]).or_else(find_uv_python)
+}
+
 #[tauri::command]
 pub fn runtime_list(app: AppHandle, state: tauri::State<'_, Installs>) -> Result<Vec<Info>, String> {
     let root = root_dir(&app)?;
@@ -1353,7 +1397,13 @@ pub fn runtime_list(app: AppHandle, state: tauri::State<'_, Installs>) -> Result
                 hint: if picked.is_none() { d.hint.clone() } else { None },
                 installing: running.contains_key(&d.id),
                 // On Android the tool shims always resolve to us, so only desktop probes the system.
-                system: if is_android() { None } else { find_on_path(&d.probe) },
+                system: if is_android() {
+                    None
+                } else if d.id == "python" {
+                    find_python()
+                } else {
+                    find_on_path(&d.probe)
+                },
                 notice: picked.and_then(|(t, g)| linker_notice(&root, &d, t, g)),
                 msvc_installable: picked.is_some_and(|(t, g)| t.needs_linker && !g) && has_winget() && !has_msvc(),
                 id: d.id,
@@ -1363,6 +1413,65 @@ pub fn runtime_list(app: AppHandle, state: tauri::State<'_, Installs>) -> Result
             }
         })
         .collect())
+}
+
+#[derive(Serialize)]
+pub struct VenvInfo {
+    /// The `.venv` directory, or the one that already existed.
+    path: String,
+    /// Python used to create it.
+    python: String,
+    /// "uv" when uv managed the environment, "python" for the standard venv module.
+    manager: String,
+}
+
+/// Creates `<project>/.venv` with uv when available, otherwise with Python's venv module.
+/// The agent gets that folder's Scripts/bin on PATH for sessions in this project.
+#[tauri::command]
+pub fn runtime_create_venv(app: AppHandle, path: String, python: Option<String>) -> Result<VenvInfo, String> {
+    let project = PathBuf::from(path.trim());
+    if !project.is_dir() {
+        return Err(format!("项目文件夹不存在：{}", project.display()));
+    }
+    let venv = project.join(".venv");
+    let exe = if cfg!(windows) { venv.join("Scripts/python.exe") } else { venv.join("bin/python3") };
+    if exe.is_file() {
+        return Ok(VenvInfo { path: venv.to_string_lossy().into_owned(), python: exe.to_string_lossy().into_owned(), manager: "existing".into() });
+    }
+    let installed = root_dir(&app).ok().and_then(|root| {
+        let exe = if cfg!(windows) { payload_dir(&root, "python", false).join("python.exe") } else { payload_dir(&root, "python", false).join("bin/python3") };
+        exe.is_file().then(|| exe.to_string_lossy().into_owned())
+    });
+    let py = python
+        .map(|p| p.trim().to_string())
+        .filter(|p| !p.is_empty() && Path::new(p).is_file())
+        .or(installed)
+        .or_else(find_python);
+    let mut cmd;
+    let manager;
+    if let Some(uv) = find_uv() {
+        cmd = std::process::Command::new(uv);
+        cmd.args(["venv", "--seed"]).arg(&venv);
+        if let Some(py) = &py {
+            cmd.args(["--python", py]);
+        }
+        manager = "uv";
+    } else if let Some(py) = &py {
+        cmd = std::process::Command::new(py);
+        cmd.args(["-m", "venv"]).arg(&venv);
+        manager = "python";
+    } else {
+        return Err("没有找到 Python 或 uv，请先在“运行环境”里安装 Python".into());
+    }
+    let out = quiet(&mut cmd).output().map_err(|e| format!("无法启动 {manager}：{e}"))?;
+    let log = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    if !out.status.success() {
+        return Err(format!("创建 venv 失败：{}", log.trim()));
+    }
+    if !exe.is_file() {
+        return Err(format!("venv 已创建，但没有找到 {}", exe.display()));
+    }
+    Ok(VenvInfo { path: venv.to_string_lossy().into_owned(), python: exe.to_string_lossy().into_owned(), manager: manager.into() })
 }
 
 /// Starts an install in the background and returns at once; progress arrives as `runtime://progress` events.

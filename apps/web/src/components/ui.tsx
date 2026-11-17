@@ -1,6 +1,6 @@
 import clsx from "clsx";
 import { X } from "lucide-react";
-import { type ComponentProps, createContext, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes, useContext, useEffect, useState } from "react";
+import { type ComponentProps, createContext, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes, useContext, useEffect, useId, useState } from "react";
 import { useStore } from "../lib/store.ts";
 
 const ModalClose = createContext<(() => void) | null>(null);
@@ -143,20 +143,20 @@ export function Empty({ icon, title, children }: { icon: ReactNode; title: strin
 }
 
 export function Flame({ className }: { className?: string }) {
+	const id = `brand-${useId().replace(/:/g, "")}`;
 	return (
 		<svg viewBox="0 0 32 32" className={className} aria-hidden>
 			<defs>
-				<linearGradient id="flame-g" x1="0" y1="1" x2="0" y2="0">
+				<linearGradient id={id} x1="0" y1="1" x2="0" y2="0">
 					<stop offset="0" style={{ stopColor: "var(--color-ember-500)" }} />
 					<stop offset="1" style={{ stopColor: "var(--flame-tip, var(--color-ember-200))" }} />
 				</linearGradient>
 			</defs>
 			<path
-				className="origin-bottom animate-flicker"
-				d="M16 3c1.9 5 7.7 7.8 7.7 14.4A7.7 7.7 0 0 1 16 25.1a7.7 7.7 0 0 1-7.7-7.7c0-3.5 1.9-5.4 3.5-7.1.4 2.4 1.4 3.8 3 4.3C13.8 11 14.3 6.6 16 3Z"
-				fill="url(#flame-g)"
+				fillRule="evenodd"
+				d="M7 27V5h8.4c4.7 0 7.8 2.7 7.8 6.6 0 3-1.6 5.2-4.2 6.1L25 27h-5l-4.5-8.8h-3.4V27H7Z M12.1 14.2h3.6c2.3 0 3.7-1.4 3.7-3.5s-1.4-3.4-3.7-3.4h-3.6v6.9Z"
+				fill={`url(#${id})`}
 			/>
-			<rect x="8" y="27" width="16" height="2.2" rx="1.1" style={{ fill: "var(--color-ember-400)" }} opacity=".55" />
 		</svg>
 	);
 }
