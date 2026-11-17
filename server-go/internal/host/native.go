@@ -2,6 +2,7 @@ package host
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"os/exec"
@@ -20,18 +21,101 @@ func pickFolder(start, title string) (string, error) {
 	defer cancel()
 	switch runtime.GOOS {
 	case "windows":
-		// FolderBrowserDialog must run on an STA thread.
+		// The old FolderBrowserDialog uses SHBrowseForFolder (the tiny tree dialog).
+		// Windows' current folder picker is IFileOpenDialog with FOS_PICKFOLDERS.
 		script := `[Console]::OutputEncoding=[Text.Encoding]::UTF8; ` +
-			`Add-Type -AssemblyName System.Windows.Forms; ` +
-			`$d=New-Object System.Windows.Forms.FolderBrowserDialog; ` +
-			`$d.Description=$env:PROMETHEUS_PICK_TITLE; ` +
-			`$d.ShowNewFolderButton=$true; ` +
-			`if($env:PROMETHEUS_PICK_START -and (Test-Path -LiteralPath $env:PROMETHEUS_PICK_START)){$d.SelectedPath=$env:PROMETHEUS_PICK_START}; ` +
-			`if($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK){Write-Output $d.SelectedPath}`
-		cmd := exec.CommandContext(ctx, "powershell", "-NoProfile", "-STA", "-Command", script)
+			`Add-Type -TypeDefinition @"
+using System;
+using System.IO;
+using System.Runtime.InteropServices;
+
+public static class RamiCoreFolderPicker {
+  [ComImport, Guid("DC1C5A9C-E88A-4dde-A5A1-60F82A20AEF7")]
+  private class FileOpenDialogRCW { }
+
+  [ComImport, Guid("42f85136-db7e-439c-85f1-e4075d135fc8"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+  private interface IFileOpenDialog {
+    [PreserveSig] int Show(IntPtr parent);
+    void SetFileTypes(uint cFileTypes, IntPtr rgFilterSpec);
+    void SetFileTypeIndex(uint iFileType);
+    void GetFileTypeIndex(out uint piFileType);
+    void Advise(IntPtr pfde, out uint pdwCookie);
+    void Unadvise(uint dwCookie);
+    void SetOptions(uint fos);
+    void GetOptions(out uint pfos);
+    void SetDefaultFolder(IShellItem psi);
+    void SetFolder(IShellItem psi);
+    void GetFolder(out IShellItem ppsi);
+    void GetCurrentSelection(out IShellItem ppsi);
+    void SetFileName([MarshalAs(UnmanagedType.LPWStr)] string pszName);
+    void GetFileName([MarshalAs(UnmanagedType.LPWStr)] out string pszName);
+    void SetTitle([MarshalAs(UnmanagedType.LPWStr)] string pszTitle);
+    void SetOkButtonLabel([MarshalAs(UnmanagedType.LPWStr)] string pszText);
+    void SetFileNameLabel([MarshalAs(UnmanagedType.LPWStr)] string pszLabel);
+    void GetResult(out IShellItem ppsi);
+    void AddPlace(IShellItem psi, int fdap);
+    void SetDefaultExtension([MarshalAs(UnmanagedType.LPWStr)] string pszDefaultExtension);
+    void Close(int hr);
+    void SetClientGuid(ref Guid guid);
+    void ClearClientData();
+    void SetFilter(IntPtr pFilter);
+    void GetResults(out IntPtr ppenum);
+    void GetSelectedItems(out IntPtr ppsai);
+  }
+
+  [ComImport, Guid("43826d1e-e718-42ee-bc55-a1e261c37bfe"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+  private interface IShellItem {
+    [PreserveSig] int BindToHandler(IntPtr pbc, [MarshalAs(UnmanagedType.LPStruct)] Guid bhid, [MarshalAs(UnmanagedType.LPStruct)] Guid riid, out IntPtr ppv);
+    [PreserveSig] int GetParent(out IShellItem ppsi);
+    [PreserveSig] int GetDisplayName(uint sigdnName, out IntPtr ppszName);
+    [PreserveSig] int GetAttributes(uint sfgaoMask, out uint psfgaoAttribs);
+    [PreserveSig] int Compare(IShellItem psi, uint hint, out int piOrder);
+  }
+
+  [DllImport("shell32.dll", CharSet=CharSet.Unicode, PreserveSig=true)]
+  private static extern int SHCreateItemFromParsingName(
+    [MarshalAs(UnmanagedType.LPWStr)] string pszPath, IntPtr pbc,
+    [MarshalAs(UnmanagedType.LPStruct)] Guid riid,
+    [MarshalAs(UnmanagedType.Interface)] out IShellItem ppv);
+
+  public static string Pick(string title, string start) {
+    var dlg = (IFileOpenDialog)new FileOpenDialogRCW();
+    uint options;
+    dlg.GetOptions(out options);
+    dlg.SetOptions(options | 0x8 | 0x20 | 0x40 | 0x800); // NOCHANGEDIR | PICKFOLDERS | FORCEFILESYSTEM | PATHMUSTEXIST
+    dlg.SetTitle(title);
+    if (!string.IsNullOrWhiteSpace(start) && Directory.Exists(start)) {
+      IShellItem folder;
+      if (SHCreateItemFromParsingName(start, IntPtr.Zero, typeof(IShellItem).GUID, out folder) == 0) {
+        dlg.SetFolder(folder);
+        Marshal.ReleaseComObject(folder);
+      }
+    }
+    if (dlg.Show(IntPtr.Zero) != 0) return "";
+    IShellItem result;
+    if (dlg.GetResult(out result) != 0 || result == null) return "";
+    IntPtr name;
+    if (result.GetDisplayName(0x80058000, out name) != 0 || name == IntPtr.Zero) return "";
+    string path = name == IntPtr.Zero ? "" : Marshal.PtrToStringUni(name);
+    if (name != IntPtr.Zero) Marshal.FreeCoTaskMem(name);
+    Marshal.ReleaseComObject(result);
+    Marshal.ReleaseComObject(dlg);
+    return path ?? "";
+  }
+}
+"@; ` +
+			`$t=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:PROMETHEUS_PICK_TITLE_B64)); $s=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:PROMETHEUS_PICK_START_B64)); [RamiCoreFolderPicker]::Pick($t, $s)`
+		f, err := os.CreateTemp("", "ramicore-picker-*.ps1")
+		if err != nil {
+			return "", err
+		}
+		defer os.Remove(f.Name())
+		_, _ = f.WriteString("[Console]::OutputEncoding=[Text.Encoding]::UTF8\n" + script + "\n")
+		_ = f.Close()
+		cmd := exec.CommandContext(ctx, "powershell", "-NoProfile", "-STA", "-File", f.Name())
 		cmd.Env = append(os.Environ(),
-			"PROMETHEUS_PICK_START="+start,
-			"PROMETHEUS_PICK_TITLE="+title,
+			"PROMETHEUS_PICK_START_B64="+base64.StdEncoding.EncodeToString([]byte(start)),
+			"PROMETHEUS_PICK_TITLE_B64="+base64.StdEncoding.EncodeToString([]byte(title)),
 		)
 		out, err := cmd.Output()
 		if err != nil {
