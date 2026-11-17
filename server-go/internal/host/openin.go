@@ -11,7 +11,7 @@ import (
 )
 
 // Editors the title bar can hand a workspace folder to. This mirrors the
-// original Node host (packages/core/src/native-dialog.ts): only apps that are
+// original Node host: only apps that are
 // actually installed are offered, and labels stay stable across languages.
 type externalEditor struct {
 	id    string

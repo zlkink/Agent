@@ -38,6 +38,7 @@ const M = defineMessages({
 	zh: {
 		thinkingLive: "思考中…",
 		statIn: "输入 {n}",
+		statPrompt: "上下文 {n}",
 		statOut: "输出 {n}",
 		statCache: "缓存命中 {r}",
 		statTtft: "首字 {v}",
@@ -46,6 +47,8 @@ const M = defineMessages({
 		workedFor: "已处理 {d}",
 		ranCommand: "运行了命令",
 		stepsDone: "已完成 {n} 个步骤",
+		expandSteps: "展开步骤",
+		collapseSteps: "收起步骤",
 		chars: "{n} 字",
 		aborted: "— 已中断",
 		compacted: "上下文已压缩",
@@ -68,6 +71,7 @@ const M = defineMessages({
 	en: {
 		thinkingLive: "Thinking…",
 		statIn: "in {n}",
+		statPrompt: "context {n}",
 		statOut: "out {n}",
 		statCache: "cache hit {r}",
 		statTtft: "first token {v}",
@@ -76,6 +80,8 @@ const M = defineMessages({
 		workedFor: "Worked for {d}",
 		ranCommand: "Ran a command",
 		stepsDone: "{n} steps completed",
+		expandSteps: "Expand steps",
+		collapseSteps: "Collapse steps",
 		chars: "{n} chars",
 		aborted: "— Stopped",
 		compacted: "Context compacted",
@@ -271,9 +277,11 @@ function Avatar() {
 	);
 }
 
-function ToolCard({ call, run, result }: { call: ToolCallContent; run?: ToolRun; result?: ToolResultMessage }) {
+function ToolCard({ call, run, result, live }: { call: ToolCallContent; run?: ToolRun; result?: ToolResultMessage; live?: boolean }) {
 	const [open, setOpen] = useState(false);
-	const status = run?.status ?? (result ? (result.isError ? "error" : "done") : "running");
+	// History does not carry tool_result messages yet, so a finished turn would
+	// otherwise keep every old tool spinning forever. Only a live turn can run.
+	const status = run?.status === "running" && !live ? "done" : (run?.status ?? (result ? (result.isError ? "error" : "done") : live ? "running" : "done"));
 	const t = useT(M);
 	const [full, setFull] = useState<string | null>(null);
 	const [loadingFull, setLoadingFull] = useState(false);
@@ -376,7 +384,7 @@ function AssistantBlock({
 				if (mode === "final" && i !== finalAt) return null;
 				if (block.type === "thinking") return block.thinking.trim() ? <ThinkingBlock key={i} text={block.thinking} live={live && i === last} /> : null;
 				if (block.type === "toolCall") {
-					const card = <ToolCard key={block.id || i} call={block} run={tools[block.id]} result={results.get(block.id)} />;
+					const card = <ToolCard key={block.id || i} call={block} run={tools[block.id]} result={results.get(block.id)} live={live} />;
 					if (block.name === "subagent") return <SubagentCard key={block.id || i} callId={block.id} fallback={card} />;
 					const delegation = block.name === "assistant_delegate" ? delegationOf(results.get(block.id)) : undefined;
 					return delegation ? <DelegationCard key={block.id || i} card={delegation} fallback={card} /> : card;
@@ -422,6 +430,7 @@ function TurnStats({ group, sessionId }: { group: { message: AssistantMessage; i
 	const t = useT(M);
 	let input = 0;
 	let output = 0;
+	let reasoning = 0;
 	let cacheRead = 0;
 	let cacheWrite = 0;
 	let tokens = 0;
@@ -432,20 +441,26 @@ function TurnStats({ group, sessionId }: { group: { message: AssistantMessage; i
 		if (!u) continue;
 		input += u.input ?? 0;
 		output += u.output ?? 0;
+		reasoning += u.reasoning ?? 0;
 		cacheRead += u.cacheRead ?? 0;
 		cacheWrite += u.cacheWrite ?? 0;
 		const sp = speedTracker.of(sessionId, message.timestamp);
 		if (sp) {
+			// `outputTokens` already includes reasoning, so it is the same base the rate was measured on.
 			tokens += sp.outputTokens;
 			ms += (sp.outputTokens / sp.tps) * 1000;
 			ttft ??= sp.ttftMs;
 		}
 	}
-	if (input + output + cacheRead + cacheWrite === 0) return null;
+	if (input + output + reasoning + cacheRead + cacheWrite === 0) return null;
 	const hit = cacheRate({ input, cacheRead, cacheWrite });
 	const parts = [
-		t("statIn", { n: fmtTokens(input + cacheRead + cacheWrite) }),
-		t("statOut", { n: fmtTokens(output) }),
+		// `input` alone is newly billed prompt tokens; the cached prefix is billed separately and shows up as the hit
+		// rate. Merging the two under one "input" label made a long conversation look like it burned that many fresh
+		// tokens, which is why the numbers read as far too high.
+		t("statIn", { n: fmtTokens(input) }),
+		...(cacheRead + cacheWrite > 0 ? [t("statPrompt", { n: fmtTokens(input + cacheRead + cacheWrite) })] : []),
+		t("statOut", { n: fmtTokens(output + reasoning) }),
 		...(hit != null && cacheRead + cacheWrite > 0 ? [t("statCache", { r: fmtPercent(hit) })] : []),
 		...(ms > 0 ? [`${(tokens / (ms / 1000)).toFixed(tokens / (ms / 1000) >= 100 ? 0 : 1)} t/s`] : []),
 		...(ttft != null ? [t("statTtft", { v: ttft < 1000 ? `${Math.round(ttft)} ms` : `${(ttft / 1000).toFixed(1)} s` })] : []),
@@ -549,14 +564,48 @@ function TurnBody({
 	const lastAt = group[group.length - 1]?.message.timestamp ?? 0;
 	const elapsed = lastAt > firstAt ? lastAt - firstAt : 0;
 	const duration = elapsed > 0 ? fmtDuration(elapsed) : "";
+	const [open, setOpen] = useState(false);
+	const header = useRef<HTMLButtonElement>(null);
+	const anchorTop = useRef<number | null>(null);
+	useLayoutEffect(() => {
+		const before = anchorTop.current;
+		anchorTop.current = null;
+		const el = header.current;
+		if (before == null || !el) return;
+		const pin = () => {
+			const after = el.getBoundingClientRect().top;
+			const delta = after - before;
+			if (Math.abs(delta) < 1) return;
+			const scroller = scrollParent(el);
+			if (scroller) scroller.scrollTop += delta;
+			else window.scrollBy(0, delta);
+		};
+		pin();
+		// Native scroll anchoring (and the list's ResizeObserver) can settle one
+		// frame later; correct once more after it has run.
+		const raf = requestAnimationFrame(pin);
+		return () => cancelAnimationFrame(raf);
+	}, [open]);
 	return (
 		<div className="flex flex-col gap-2">
-			<div className="flex items-center gap-3 text-xs text-ink-500">
+			<button
+				ref={header}
+				data-steps-toggle
+				type="button"
+				onClick={() => {
+					anchorTop.current = header.current?.getBoundingClientRect().top ?? null;
+					setOpen((v) => !v);
+				}}
+				aria-expanded={open}
+				className="group flex items-center gap-3 text-left text-xs text-ink-500 transition-colors hover:text-ink-300"
+				title={open ? t("collapseSteps") : t("expandSteps")}
+			>
 				<span className="shrink-0">{duration ? t("workedFor", { d: duration }) : t("stepsDone", { n: steps })}</span>
+				<ChevronDown className={clsx("size-3.5 shrink-0 transition-transform", open && "rotate-180")} />
 				<span className="h-px min-w-6 flex-1 bg-ink-800" />
-			</div>
-			<div className="flex flex-col gap-0.5">{render("steps")}</div>
-			{finalAt >= 0 && <div className="mt-1">{render("final")}</div>}
+			</button>
+			{open && <div className="flex flex-col gap-0.5">{render("steps")}</div>}
+			{finalAt >= 0 && <div className={open ? "mt-1" : ""}>{render("final")}</div>}
 			{live && awaitingNext && <Pondering />}
 		</div>
 	);

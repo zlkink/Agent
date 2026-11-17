@@ -12,7 +12,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: helixagent-${{ github.ref }}
+  group: ramicore-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -169,9 +169,6 @@ jobs:
             cp server-go/package/README.md "$P/README.md"
             DESKTOP="$TARGET_ROOT/release/RamiCore Desktop${{ matrix.ext }}"
             if [ ! -f "$DESKTOP" ]; then
-              DESKTOP="$TARGET_ROOT/release/helixagent-desktop${{ matrix.ext }}"
-            fi
-            if [ ! -f "$DESKTOP" ]; then
               DESKTOP="$TARGET_ROOT/release/RamiCore${{ matrix.ext }}"
             fi
             cp "$DESKTOP" "$P/RamiCore Desktop${{ matrix.ext }}"
@@ -188,7 +185,7 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: helixagent-${{ matrix.os }}-${{ matrix.goarch }}
+          name: ramicore-${{ matrix.os }}-${{ matrix.goarch }}
           path: server-go/build-artifacts/**
           if-no-files-found: error
           retention-days: 7

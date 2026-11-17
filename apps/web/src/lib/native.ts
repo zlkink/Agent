@@ -1,6 +1,6 @@
 /**
  * Bridge the Android shell injects into the WebView (see `MainActivity` in
- * apps/desktop/scripts/android-runtime.ts). It lets the page tell the system bars how to look, which the
+ * the desktop shell's Android patch). It lets the page tell the system bars how to look, which the
  * shell cannot work out on its own: the app theme is a user preference, unrelated to the phone's dark mode.
  */
 interface AndroidHost {

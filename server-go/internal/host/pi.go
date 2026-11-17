@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"prometheus-go/internal/mcpconfig"
 	piclient "prometheus-go/internal/pi"
 )
 
@@ -31,7 +32,7 @@ func (h *Host) runPiPrompt(s *Session, text string) {
 		env["PI_CODING_AGENT_SESSION_DIR"] = filepath.Join(h.cfg.DataDir, "pi-sessions")
 		if h.bus != nil {
 			mcpURL, mcpToken := h.bus.Open(s.ID, s.Cwd)
-			_ = writePIMcp(agentDir, mcpURL, mcpToken)
+			_ = writePIMcp(agentDir, mcpURL, mcpToken, mcpconfig.Load(h.cfg.DataDir))
 		}
 		// The host's own Claude session credentials must not leak into PI.
 		env["ANTHROPIC_BASE_URL"] = ""
@@ -156,24 +157,46 @@ func firstNum(m map[string]any, keys ...string) int {
 // writePIModels points PI at the Go relay through a per-run models.json, so the
 // real gateway key never reaches the PI process.
 // writePIMcp exposes the same Go tool bus to PI through its mcp.json.
-func writePIMcp(agentDir, busURL, busToken string) error {
-	if busURL == "" {
+func writePIMcp(agentDir, busURL, busToken string, extra map[string]mcpconfig.Server) error {
+	servers := map[string]any{}
+	if busURL != "" {
+		servers["prometheus"] = map[string]any{
+			"url":         busURL,
+			"headers":     map[string]any{"Authorization": "Bearer " + busToken},
+			"description": "RamiCore tools: todo, memory and open_file",
+		}
+	}
+	for name, cfg := range extra {
+		servers[name] = piMCPConfig(cfg)
+	}
+	if len(servers) == 0 {
 		return nil
 	}
-	payload := map[string]any{
-		"mcpServers": map[string]any{
-			"prometheus": map[string]any{
-				"url":         busURL,
-				"headers":     map[string]any{"Authorization": "Bearer " + busToken},
-				"description": "Prometheus tools: todo, memory and open_file",
-			},
-		},
-	}
+	payload := map[string]any{"mcpServers": servers}
 	raw, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
 		return err
 	}
 	return os.WriteFile(filepath.Join(agentDir, "mcp.json"), append(raw, '\n'), 0o600)
+}
+
+func piMCPConfig(cfg mcpconfig.Server) map[string]any {
+	cfg = mcpconfig.Expand(cfg).(map[string]any)
+	if str(cfg["command"]) != "" {
+		out := map[string]any{"command": cfg["command"]}
+		if a := cfg["args"]; a != nil {
+			out["args"] = a
+		}
+		if e := cfg["env"]; e != nil {
+			out["env"] = e
+		}
+		return out
+	}
+	out := map[string]any{"url": cfg["url"]}
+	if h := cfg["headers"]; h != nil {
+		out["headers"] = h
+	}
+	return out
 }
 
 func writePIModels(agentDir, relayURL, relayToken, provider string, models []any) error {

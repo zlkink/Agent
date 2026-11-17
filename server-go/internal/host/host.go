@@ -150,7 +150,7 @@ type queuedPrompt struct {
 }
 
 type usageTotals struct {
-	Input, Output, CacheRead, CacheWrite int
+	Input, Output, Reasoning, CacheRead, CacheWrite int
 }
 
 func New(cfg Config) *Host {
@@ -191,6 +191,9 @@ func New(cfg Config) *Host {
 		h.bus = bus
 		bus.SetSubagent(h.runSubagent)
 		bus.SetAsk(h.askQuestion)
+		bus.SetKnowledge(func(ctx context.Context, query string, topK int) ([]any, error) {
+			return h.searchKnowledge(query, topK)
+		})
 	}
 	if st, err := h.store.Load(); err == nil {
 		for k, v := range st.Settings {
@@ -218,7 +221,7 @@ func New(cfg Config) *Host {
 				Provider: rec.Provider, ModelID: rec.Model,
 				messages: rec.Messages,
 				usage: usageTotals{
-					Input: rec.InputTokens, Output: rec.OutputTokens,
+					Input: rec.InputTokens, Output: rec.OutputTokens, Reasoning: rec.ReasoningTokens,
 					CacheRead: rec.CacheRead, CacheWrite: rec.CacheWrite,
 				},
 				worktree: rec.Worktree,
@@ -259,7 +262,7 @@ func (h *Host) persist() {
 			Created: s.Created, Modified: s.Modified, Archived: s.Archived,
 			PermissionMode: s.PermissionMode,
 			Provider:       s.Provider, Model: s.ModelID,
-			InputTokens: s.usage.Input, OutputTokens: s.usage.Output,
+			InputTokens: s.usage.Input, OutputTokens: s.usage.Output, ReasoningTokens: s.usage.Reasoning,
 			CacheRead: s.usage.CacheRead, CacheWrite: s.usage.CacheWrite,
 			Worktree: s.worktree,
 			Messages: msgs,
@@ -700,7 +703,7 @@ func (h *Host) snapshot(s *Session) map[string]any {
 	s.mu.Unlock()
 
 	provider, modelID := h.modelFor(runtimeID)
-	if runtimeID == "claude-code" && sessionModel != "" {
+	if sessionModel != "" {
 		provider, modelID = sessionProvider, sessionModel
 	}
 	caps := ccCapabilities()
@@ -1080,18 +1083,18 @@ func (h *Host) runPrompt(s *Session, text string, images ...[]any) {
 			"toolName": name, "args": args,
 		})
 	}
-	toolResult := func(raw json.RawMessage) any {
+	toolResultContent := func(raw json.RawMessage) any {
 		if len(raw) == 0 {
-			return map[string]any{}
+			return []any{}
 		}
 		var v any
 		if json.Unmarshal(raw, &v) != nil || v == nil {
-			return map[string]any{}
+			return []any{}
 		}
 		if text, ok := v.(string); ok {
-			v = []any{map[string]any{"type": "text", "text": text}}
+			return []any{map[string]any{"type": "text", "text": text}}
 		}
-		return map[string]any{"content": v}
+		return v
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
@@ -1130,9 +1133,14 @@ func (h *Host) runPrompt(s *Session, text string, images ...[]any) {
 					"delta": map[string]any{"type": "toolcall_end", "contentIndex": idx, "toolCall": toolBlocks[ev.ID]},
 				})
 			}
+			content := toolResultContent(ev.Result)
 			h.event(s.ID, map[string]any{
 				"type": "tool_execution_end", "toolCallId": ev.ID,
-				"toolName": "tool", "result": toolResult(ev.Result), "isError": ev.IsError,
+				"toolName": "tool", "result": map[string]any{"content": content}, "isError": ev.IsError,
+			})
+			s.appendMessage(map[string]any{
+				"role": "toolResult", "toolCallId": ev.ID, "toolName": "tool",
+				"content": content, "isError": ev.IsError, "timestamp": time.Now().UnixMilli(),
 			})
 		case "permission_request":
 			go h.handlePermission(s, sc, ev.ID, ev.Tool, ev.Input)
@@ -1196,6 +1204,7 @@ func (h *Host) runPrompt(s *Session, text string, images ...[]any) {
 	s.mu.Lock()
 	s.usage.Input += number(usage["input_tokens"])
 	s.usage.Output += number(usage["output_tokens"])
+	s.usage.Reasoning += number(usage["reasoning_output_tokens"]) + number(usage["reasoning"])
 	s.usage.CacheRead += number(usage["cache_read_input_tokens"])
 	s.usage.CacheWrite += number(usage["cache_creation_input_tokens"])
 	s.mu.Unlock()
@@ -1331,6 +1340,22 @@ func decidePermission(mode, tool string) (allow bool, ask bool) {
 	}
 }
 
+func setSessionModel(s *Session, m map[string]any) {
+	if s == nil || m == nil {
+		return
+	}
+	provider, modelID := str(m["provider"]), str(m["id"])
+	if modelID == "" {
+		return
+	}
+	s.mu.Lock()
+	s.Provider = provider
+	s.ModelID = modelID
+	s.contextWindow = 0
+	s.contextTokens = 0
+	s.mu.Unlock()
+}
+
 func (h *Host) finishError(s *Session, err error) {
 	msg := map[string]any{
 		"role": "assistant", "content": []any{}, "provider": h.cfg.Provider,
@@ -1353,7 +1378,7 @@ func (h *Host) dispatch(method string, raw json.RawMessage) (any, error) {
 	switch method {
 	case "host.info":
 		return map[string]any{
-			"version": "0.30.29-ramicore", "piVersion": h.cfg.PIVersion, "protocol": protocolVersion,
+			"version": "0.30.30-ramicore", "piVersion": h.cfg.PIVersion, "protocol": protocolVersion,
 			"cwd": h.cfg.Cwd, "platform": runtime.GOOS,
 		}, nil
 
@@ -1410,6 +1435,9 @@ func (h *Host) dispatch(method string, raw json.RawMessage) (any, error) {
 			runtimeID = "claude-code"
 		}
 		s := h.create(cwd, name, runtimeID)
+		if m, ok := p["model"].(map[string]any); ok {
+			setSessionModel(s, m)
+		}
 		wantWorktree := bool_(p["worktree"]) || str(h.settings["worktreeMode"]) == "on"
 		if wantWorktree {
 			if err := h.setupWorktree(s); err != nil {
@@ -1621,6 +1649,9 @@ func (h *Host) dispatch(method string, raw json.RawMessage) (any, error) {
 		s.ocCancel = nil
 		s.Runtime = runtimeID
 		s.mu.Unlock()
+		if m, ok := p["model"].(map[string]any); ok {
+			setSessionModel(s, m)
+		}
 		if old != nil {
 			old.Close()
 		}
@@ -1648,7 +1679,7 @@ func (h *Host) dispatch(method string, raw json.RawMessage) (any, error) {
 			return nil, fmt.Errorf("sessionNotFound")
 		}
 		s.mu.Lock()
-		in, out, cr, cw := s.usage.Input, s.usage.Output, s.usage.CacheRead, s.usage.CacheWrite
+		in, out, reasoning, cr, cw := s.usage.Input, s.usage.Output, s.usage.Reasoning, s.usage.CacheRead, s.usage.CacheWrite
 		ctxTokens, ctxWindow := s.contextTokens, s.contextWindow
 		sessionModel := s.ModelID
 		tokens := 0
@@ -1662,8 +1693,8 @@ func (h *Host) dispatch(method string, raw json.RawMessage) (any, error) {
 		if ctxTokens > 0 {
 			tokens = ctxTokens
 			estimated = false
-		} else if tokens == 0 && in+out+cr+cw > 0 {
-			tokens = in + out + cr + cw
+		} else if tokens == 0 && in+out+reasoning+cr+cw > 0 {
+			tokens = in + out + reasoning + cr + cw
 		}
 		window := ctxWindow
 		if window <= 0 {
@@ -1683,7 +1714,7 @@ func (h *Host) dispatch(method string, raw json.RawMessage) (any, error) {
 			"contextTokens": tokens, "contextEstimated": estimated, "contextWindow": window,
 			"contextPercent": percent,
 			"breakdown":      map[string]any{"system": 0, "tools": 0, "user": 0, "assistant": 0, "toolResults": 0, "other": 0},
-			"totalCost":      0, "inputTokens": in, "outputTokens": out,
+			"totalCost":      0, "inputTokens": in, "outputTokens": out, "reasoningTokens": reasoning,
 			"cacheReadTokens": cr, "cacheWriteTokens": cw,
 		}, nil
 
@@ -1915,16 +1946,7 @@ func (h *Host) dispatch(method string, raw json.RawMessage) (any, error) {
 	case "model.set":
 		if s := h.session(str(p["sessionId"])); s != nil {
 			if m, ok := p["model"].(map[string]any); ok {
-				provider := str(m["provider"])
-				modelID := str(m["id"])
-				if modelID != "" {
-					s.mu.Lock()
-					s.Provider = provider
-					s.ModelID = modelID
-					s.contextWindow = 0
-					s.contextTokens = 0
-					s.mu.Unlock()
-				}
+				setSessionModel(s, m)
 				h.event(s.ID, map[string]any{"type": "model_changed", "model": m})
 				h.persist()
 			}
@@ -1980,6 +2002,9 @@ func (h *Host) dispatch(method string, raw json.RawMessage) (any, error) {
 	case "runtime.models":
 		switch str(p["runtime"]) {
 		case "codex":
+			if models := h.gatewayModelList(); len(models) > 0 {
+				return models, nil
+			}
 			return []any{map[string]any{
 				"provider": "codex", "id": "default", "name": "Codex (account default)",
 				"reasoning": true, "vision": true, "contextWindow": 200_000,
@@ -2422,6 +2447,8 @@ func (h *Host) dispatch(method string, raw json.RawMessage) (any, error) {
 		h.mu.Unlock()
 		return nil, nil
 
+	case "knowledge_search":
+		return h.searchKnowledge(str(p["query"]), int(number(p["topK"])))
 	case "kb.search":
 		id := str(p["id"])
 		q := strings.ToLower(strings.TrimSpace(str(p["query"])))
@@ -2503,6 +2530,7 @@ func (h *Host) dispatch(method string, raw json.RawMessage) (any, error) {
 			map[string]any{"name": "todo_write", "description": "Replace the todo list", "active": true},
 			map[string]any{"name": "memory_save", "description": "Save a memory", "active": true},
 			map[string]any{"name": "memory_search", "description": "Search memories", "active": true},
+			map[string]any{"name": "knowledge_search", "description": "Search knowledge bases", "active": true},
 			map[string]any{"name": "open_file", "description": "Show a file in the side viewer", "active": true},
 			map[string]any{"name": "bash", "description": "Run a shell command", "active": h.cfg.AllowWrite},
 			map[string]any{"name": "read", "description": "Read a file", "active": true},
@@ -2513,7 +2541,7 @@ func (h *Host) dispatch(method string, raw json.RawMessage) (any, error) {
 		h.mu.Lock()
 		ids := append([]string(nil), h.order...)
 		h.mu.Unlock()
-		in, out, cr, cw, sessions := 0, 0, 0, 0, 0
+		in, out, reasoning, cr, cw, sessions := 0, 0, 0, 0, 0, 0
 		for _, id := range ids {
 			s := h.session(id)
 			if s == nil {
@@ -2525,6 +2553,7 @@ func (h *Host) dispatch(method string, raw json.RawMessage) (any, error) {
 			}
 			in += s.usage.Input
 			out += s.usage.Output
+			reasoning += s.usage.Reasoning
 			cr += s.usage.CacheRead
 			cw += s.usage.CacheWrite
 			s.mu.Unlock()
@@ -2532,8 +2561,8 @@ func (h *Host) dispatch(method string, raw json.RawMessage) (any, error) {
 		return map[string]any{
 			"days": number(p["days"]), "sessions": sessions,
 			"totals": map[string]any{
-				"input": in, "output": out, "cacheRead": cr, "cacheWrite": cw,
-				"totalTokens": in + out + cr + cw, "cost": 0,
+				"input": in, "output": out, "reasoning": reasoning, "cacheRead": cr, "cacheWrite": cw,
+				"totalTokens": in + out + reasoning + cr + cw, "cost": 0,
 			},
 			"byModel": []any{}, "byDay": []any{},
 		}, nil
@@ -2693,6 +2722,35 @@ func asMap(v any) map[string]any {
 		return map[string]any{}
 	}
 	return m
+}
+
+func (h *Host) searchKnowledge(query string, topK int) ([]any, error) {
+	if topK <= 0 {
+		topK = 6
+	}
+	h.mu.Lock()
+	bases := make([]map[string]any, len(h.kbBases))
+	copy(bases, h.kbBases)
+	h.mu.Unlock()
+	hits := []any{}
+	for _, base := range bases {
+		id := str(base["id"])
+		raw, _ := json.Marshal(map[string]any{"id": id, "query": query, "topK": topK})
+		res, err := h.dispatch("kb.search", raw)
+		if err != nil {
+			continue
+		}
+		for _, item := range asList(res) {
+			hit := asMap(item)
+			hit["baseId"] = id
+			hit["base"] = str(base["name"])
+			hits = append(hits, hit)
+		}
+	}
+	if len(hits) > topK {
+		hits = hits[:topK]
+	}
+	return hits, nil
 }
 
 func (h *Host) kbBase(id string) map[string]any {
@@ -2923,7 +2981,7 @@ func (h *Host) workspaceRefs() []map[string]any {
 
 func (h *Host) pluginContext(prompt string, s *Session) (static, turn string) {
 	if h.cfg.PluginURL == "" {
-		return "", ""
+		return h.knowledgeContext(), ""
 	}
 	body, _ := json.Marshal(map[string]any{
 		"prompt": prompt, "cwd": s.Cwd, "sessionId": s.ID,
@@ -2932,11 +2990,11 @@ func (h *Host) pluginContext(prompt string, s *Session) (static, turn string) {
 	client := &http.Client{Timeout: 6 * time.Second}
 	res, err := client.Post(strings.TrimRight(h.cfg.PluginURL, "/")+"/context", "application/json", strings.NewReader(string(body)))
 	if err != nil {
-		return "", ""
+		return h.knowledgeContext(), ""
 	}
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
-		return "", ""
+		return h.knowledgeContext(), ""
 	}
 	var out struct {
 		Static struct {
@@ -2946,7 +3004,7 @@ func (h *Host) pluginContext(prompt string, s *Session) (static, turn string) {
 		Turn []string `json:"turn"`
 	}
 	if json.NewDecoder(res.Body).Decode(&out) != nil {
-		return "", ""
+		return h.knowledgeContext(), ""
 	}
 	var b strings.Builder
 	keys := make([]string, 0, len(out.Static.Sections))
@@ -2963,7 +3021,30 @@ func (h *Host) pluginContext(prompt string, s *Session) (static, turn string) {
 			b.WriteString("- " + g + "\n")
 		}
 	}
+	if kb := h.knowledgeContext(); kb != "" {
+		b.WriteString("\n" + kb + "\n")
+	}
 	return strings.TrimSpace(b.String()), strings.TrimSpace(strings.Join(out.Turn, "\n\n"))
+}
+
+func (h *Host) knowledgeContext() string {
+	h.mu.Lock()
+	bases := make([]map[string]any, len(h.kbBases))
+	copy(bases, h.kbBases)
+	h.mu.Unlock()
+	if len(bases) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("# Knowledge bases\nSearch these with the knowledge_search tool when the answer may be in the user's documents.\n")
+	for _, base := range bases {
+		b.WriteString("- " + str(base["name"]) + " (id " + str(base["id"]) + ")")
+		if d := str(base["description"]); d != "" {
+			b.WriteString(": " + d)
+		}
+		b.WriteString("\n")
+	}
+	return b.String()
 }
 
 func withContext(static, turn, text string) string {
@@ -4026,7 +4107,7 @@ func ccCapabilities() map[string]any {
 
 func zeroUsage() map[string]any {
 	return map[string]any{
-		"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0,
+		"input": 0, "output": 0, "reasoning": 0, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 0,
 		"cost": map[string]any{"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0},
 	}
 }
@@ -4034,14 +4115,18 @@ func zeroUsage() map[string]any {
 func normalizeUsage(raw map[string]any) map[string]any {
 	in := number(raw["input_tokens"])
 	out := number(raw["output_tokens"])
+	reasoning := number(raw["reasoning_output_tokens"])
+	if reasoning == 0 {
+		reasoning = number(raw["reasoning"])
+	}
 	cr := number(raw["cache_read_input_tokens"])
 	cw := number(raw["cache_creation_input_tokens"])
-	if in+out+cr+cw == 0 {
+	if in+out+reasoning+cr+cw == 0 {
 		return zeroUsage()
 	}
 	return map[string]any{
-		"input": in, "output": out, "cacheRead": cr, "cacheWrite": cw,
-		"totalTokens": in + out + cr + cw,
+		"input": in, "output": out, "reasoning": reasoning, "cacheRead": cr, "cacheWrite": cw,
+		"totalTokens": in + out + reasoning + cr + cw,
 		"cost":        map[string]any{"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0},
 	}
 }

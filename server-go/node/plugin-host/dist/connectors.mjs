@@ -4879,6 +4879,7 @@ var atlassian = {
     ]
   },
   async test(c) {
+    if (!c.credentials.config.email) return (await request("https://api.atlassian.com/me", { headers: { authorization: `Bearer ${c.credentials.token}` }, signal: c.signal })).name ?? "Atlassian";
     return (await call(c, "/rest/api/3/myself")).displayName;
   },
   operations: [
@@ -9654,7 +9655,7 @@ var index_default = definePlugin({
         return { ok: false, error: err instanceof Error ? err.message : String(err) };
       }
     });
-    ctx.route("GET", CALLBACK_PATH, async (req, res) => {
+    ctx.route("GET", CALLBACK_PATH.slice("/plugins/connectors".length), async (req, res) => {
       const url = new URL(req.url ?? "/", "http://localhost");
       const state = url.searchParams.get("state") ?? "";
       const flow = flows.get(state);

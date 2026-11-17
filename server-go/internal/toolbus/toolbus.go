@@ -29,12 +29,20 @@ type Server struct {
 	memMu     sync.Mutex
 	subagent  func(ctx context.Context, cwd, agent, task string) (string, error)
 	ask       func(ctx context.Context, sessionID, cwd, question string, options []string) (string, error)
+	knowledge func(ctx context.Context, query string, topK int) ([]any, error)
 }
 
 // SetSubagent installs the runner behind the `subagent` tool.
 func (s *Server) SetSubagent(fn func(ctx context.Context, cwd, agent, task string) (string, error)) {
 	s.mu.Lock()
 	s.subagent = fn
+	s.mu.Unlock()
+}
+
+// SetKnowledge installs the search runner behind `knowledge_search`.
+func (s *Server) SetKnowledge(fn func(ctx context.Context, query string, topK int) ([]any, error)) {
+	s.mu.Lock()
+	s.knowledge = fn
 	s.mu.Unlock()
 }
 
@@ -241,6 +249,18 @@ func localToolDefinitions() []any {
 				"properties": map[string]any{
 					"query": map[string]any{"type": "string"},
 					"limit": map[string]any{"type": "number"},
+				},
+				"required": []any{"query"},
+			},
+		},
+		map[string]any{
+			"name":        "knowledge_search",
+			"description": "Search the user's knowledge bases. Returns matching document chunks with their base and document id.",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"query": map[string]any{"type": "string"},
+					"topK":  map[string]any{"type": "number"},
 				},
 				"required": []any{"query"},
 			},
@@ -482,6 +502,24 @@ func (s *Server) call(sessionID, name string, args map[string]any) (any, *rpcErr
 			}
 		}
 		return toolResult(fmt.Sprintf("Found %d memories", len(hits)), map[string]any{"hits": hits}), nil
+
+	case "knowledge_search":
+		q := strings.TrimSpace(str(args["query"]))
+		topK := 6
+		if n, ok := args["topK"].(float64); ok && n > 0 {
+			topK = int(n)
+		}
+		s.mu.Lock()
+		fn := s.knowledge
+		s.mu.Unlock()
+		if fn == nil {
+			return nil, &rpcError{Code: -32603, Message: "knowledge search is not available"}
+		}
+		hits, err := fn(context.Background(), q, topK)
+		if err != nil {
+			return nil, &rpcError{Code: -32603, Message: err.Error()}
+		}
+		return toolResult(fmt.Sprintf("Found %d knowledge chunks", len(hits)), map[string]any{"hits": hits}), nil
 
 	case "open_file":
 		return toolResult("Opened "+str(args["path"]), map[string]any{"path": str(args["path"])}), nil

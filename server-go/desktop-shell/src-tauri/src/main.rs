@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    helixagent_desktop_lib::run()
+    ramicore_desktop_lib::run()
 }

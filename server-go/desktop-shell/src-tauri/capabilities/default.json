@@ -2,8 +2,16 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Main window permissions",
-  "windows": ["main", "panel", "traymenu"],
-  "platforms": ["linux", "macOS", "windows"],
+  "windows": [
+    "main",
+    "panel",
+    "traymenu"
+  ],
+  "platforms": [
+    "linux",
+    "macOS",
+    "windows"
+  ],
   "permissions": [
     "core:default",
     "notification:default",
@@ -15,7 +23,18 @@
     "updater:default",
     {
       "identifier": "opener:allow-open-url",
-      "allow": [{ "url": "https://*" }, { "url": "http://*" }, { "url": "mailto:*" }]
-    }
+      "allow": [
+        {
+          "url": "https://*"
+        },
+        {
+          "url": "http://*"
+        },
+        {
+          "url": "mailto:*"
+        }
+      ]
+    },
+    "dialog:default"
   ]
 }

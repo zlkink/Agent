@@ -888,7 +888,10 @@ export async function switchRuntime(info: RuntimeInfo): Promise<void> {
 export async function setDraftAgent(info: RuntimeInfo): Promise<void> {
 	const empty = get().session;
 	const replace = empty && empty.messages.length === 0 && !empty.pending && !empty.isStreaming ? empty : null;
-	set({ draftRuntime: info.kind, draftAgentId: info.id, draftModel: null });
+	const previousModel = get().draftModel ?? empty?.model;
+	const models = (await call((c) => c.rpc("runtime.models", { runtime: info.kind, agent: info.id }))) ?? [];
+	const keep = previousModel ? models.find((m) => m.provider === previousModel.provider && m.id === previousModel.id) : undefined;
+	set({ draftRuntime: info.kind, draftAgentId: info.id, draftModel: keep ?? null });
 	if (!replace) {
 		void refreshDraftModels();
 		return;
@@ -900,7 +903,7 @@ export async function setDraftAgent(info: RuntimeInfo): Promise<void> {
 	if (!created || created.id === replace.id) return;
 	// The empty session of the previous agent is of no use any more.
 	void get().client?.rpc("session.delete", { sessionId: replace.id }).catch(() => {});
-	set({ draftModel: null });
+	set({ draftModel: keep ?? null });
 	if (permission !== created.permissionMode) await setPermissionMode(permission);
 }
 

@@ -6,9 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
+
+	"prometheus-go/internal/mcpconfig"
 )
 
 // runCodexPrompt drives `codex exec --json` for one turn. Codex has no
@@ -46,10 +50,45 @@ func (h *Host) runCodexPrompt(s *Session, text string) {
 		"exec", "--json", "--color", "never", "--skip-git-repo-check", "--ephemeral",
 		"-C", s.Cwd, "-s", sandbox, "-c", `approval_policy="never"`,
 	}
+	s.mu.Lock()
+	modelID := s.ModelID
+	s.mu.Unlock()
+	if modelID != "" && modelID != "default" {
+		args = append(args, "-m", modelID)
+	}
+	busToken := ""
+	if h.bus != nil {
+		url, token := h.bus.Open(s.ID, s.Cwd)
+		busToken = token
+		args = append(args, "-c", `mcp_servers.prometheus.url=`+strconv.Quote(url), "-c", `mcp_servers.prometheus.bearer_token_env_var="RAMICORE_MCP_TOKEN"`)
+	}
+	for name, cfg := range mcpconfig.Load(h.cfg.DataDir) {
+		key := `mcp_servers.` + strconv.Quote(name)
+		if cmd := str(cfg["command"]); cmd != "" {
+			args = append(args, "-c", key+`.command=`+strconv.Quote(cmd))
+			if a, ok := cfg["args"].([]any); ok && len(a) > 0 {
+				if raw, err := json.Marshal(a); err == nil {
+					args = append(args, "-c", key+`.args=`+string(raw))
+				}
+			}
+			if e, ok := cfg["env"].(map[string]any); ok && len(e) > 0 {
+				parts := []string{}
+				for k, v := range e {
+					parts = append(parts, strconv.Quote(k)+"="+strconv.Quote(str(v)))
+				}
+				args = append(args, "-c", key+`.env={`+strings.Join(parts, ",")+`}`)
+			}
+		} else if url := str(cfg["url"]); url != "" {
+			args = append(args, "-c", key+`.url=`+strconv.Quote(url))
+		}
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, h.cfg.Codex.Path, args...)
 	cmd.Dir = s.Cwd
+	if busToken != "" {
+		cmd.Env = append(os.Environ(), "RAMICORE_MCP_TOKEN="+busToken)
+	}
 	staticCtx, turnCtx := h.pluginContext(text, s)
 	cmd.Stdin = strings.NewReader(codexPromptWithHistory(history, withContext(staticCtx, turnCtx, text)))
 	stdout, err := cmd.StdoutPipe()
@@ -74,8 +113,49 @@ func (h *Host) runCodexPrompt(s *Session, text string) {
 	}()
 
 	var textBuf strings.Builder
+	content := []any{}
+	thinkingAt, textAt := -1, -1
+	appendThinking := func(delta string) {
+		if delta == "" {
+			return
+		}
+		if thinkingAt < 0 {
+			content = append(content, map[string]any{"type": "thinking", "thinking": ""})
+			thinkingAt = len(content) - 1
+			textAt = -1
+		}
+		block := content[thinkingAt].(map[string]any)
+		block["thinking"] = str(block["thinking"]) + delta
+		h.event(s.ID, map[string]any{"type": "message_update", "delta": map[string]any{"type": "thinking_delta", "contentIndex": thinkingAt, "delta": delta}})
+	}
+	appendText := func(delta string) {
+		if delta == "" {
+			return
+		}
+		if textAt < 0 {
+			content = append(content, map[string]any{"type": "text", "text": ""})
+			textAt = len(content) - 1
+			thinkingAt = -1
+		}
+		block := content[textAt].(map[string]any)
+		block["text"] = str(block["text"]) + delta
+		textBuf.WriteString(delta)
+		h.event(s.ID, map[string]any{"type": "message_update", "delta": map[string]any{"type": "text_delta", "contentIndex": textAt, "delta": delta}})
+	}
 	var usage map[string]any
 	var runErr error
+	pendingAgent := ""
+	flushPending := func(asThinking bool) {
+		if pendingAgent == "" {
+			return
+		}
+		if asThinking {
+			appendThinking(pendingAgent)
+		} else {
+			appendText(pendingAgent)
+		}
+		pendingAgent = ""
+	}
 	toolNames := map[string]string{}
 	sc := bufio.NewScanner(stdout)
 	sc.Buffer(make([]byte, 64<<10), 16<<20)
@@ -99,6 +179,9 @@ func (h *Host) runCodexPrompt(s *Session, text string) {
 		item := ev.Item
 		switch ev.Type {
 		case "item.started":
+			if item.Type == "command_execution" || item.Type == "file_change" {
+				flushPending(true)
+			}
 			switch item.Type {
 			case "command_execution":
 				toolNames[item.ID] = "bash"
@@ -116,19 +199,26 @@ func (h *Host) runCodexPrompt(s *Session, text string) {
 		case "item.completed":
 			switch item.Type {
 			case "agent_message":
-				if strings.TrimSpace(item.Text) != "" {
-					textBuf.WriteString(item.Text)
-					h.event(s.ID, map[string]any{
-						"type":  "message_update",
-						"delta": map[string]any{"type": "text_delta", "contentIndex": 0, "delta": item.Text},
-					})
+				if strings.TrimSpace(item.Text) == "" {
+					break
+				}
+				switch item.Phase {
+				case "commentary", "partial_answer":
+					flushPending(true)
+					appendThinking(item.Text)
+				case "final_answer":
+					flushPending(true)
+					appendText(item.Text)
+				default:
+					// Codex often omits phase for intermediate commentary. Until
+					// another agent message arrives, keep it as a candidate final.
+					flushPending(true)
+					pendingAgent = item.Text
 				}
 			case "reasoning":
+				flushPending(true)
 				if strings.TrimSpace(item.Text) != "" {
-					h.event(s.ID, map[string]any{
-						"type":  "message_update",
-						"delta": map[string]any{"type": "thinking_delta", "contentIndex": 0, "delta": item.Text},
-					})
+					appendThinking(item.Text)
 				}
 			case "command_execution":
 				isErr := item.ExitCode != nil && *item.ExitCode != 0
@@ -164,8 +254,8 @@ func (h *Host) runCodexPrompt(s *Session, text string) {
 		}
 	}
 
-	content := []any{}
-	if textBuf.Len() > 0 {
+	flushPending(false)
+	if len(content) == 0 && textBuf.Len() > 0 {
 		content = append(content, map[string]any{"type": "text", "text": textBuf.String()})
 	}
 	stop := "stop"
@@ -188,6 +278,7 @@ func (h *Host) runCodexPrompt(s *Session, text string) {
 	s.mu.Lock()
 	s.usage.Input += number(usage["input_tokens"])
 	s.usage.Output += number(usage["output_tokens"])
+	s.usage.Reasoning += number(usage["reasoning_output_tokens"]) + number(usage["reasoning"])
 	s.usage.CacheRead += number(usage["cache_read_input_tokens"])
 	s.usage.CacheWrite += number(usage["cache_creation_input_tokens"])
 	s.mu.Unlock()
@@ -198,6 +289,7 @@ type codexItem struct {
 	ID               string `json:"id"`
 	Type             string `json:"type"`
 	Text             string `json:"text"`
+	Phase            string `json:"phase"`
 	Command          string `json:"command"`
 	AggregatedOutput string `json:"aggregated_output"`
 	ExitCode         *int   `json:"exit_code"`

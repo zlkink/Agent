@@ -1,4 +1,4 @@
-import { Bug, FileCode2, FolderTree, LoaderCircle, RotateCcw, ScanSearch } from "lucide-react";
+import { ArrowDown, Bug, FileCode2, FolderTree, LoaderCircle, RotateCcw, ScanSearch } from "lucide-react";
 import clsx from "clsx";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { defineMessages, useT } from "../lib/i18n.ts";
@@ -12,6 +12,7 @@ import { Flame } from "./ui.tsx";
 const M = defineMessages({
 	zh: {
 		opening: "正在打开会话…",
+		jumpLatest: "跳到最新回复",
 		syncing: "正在同步最新内容…",
 		headline1: "想做什么，",
 		headline2: "直接告诉我",
@@ -32,6 +33,7 @@ const M = defineMessages({
 	},
 	en: {
 		opening: "Opening conversation…",
+		jumpLatest: "Jump to latest reply",
 		syncing: "Syncing the latest…",
 		headline1: "What do you want to do? ",
 		headline2: "Just tell me",
@@ -84,6 +86,7 @@ function ChatBody() {
 	const opening = useStore((s) => s.opening);
 	const scroller = useRef<HTMLDivElement | null>(null);
 	const pinned = useRef(true);
+	const [showJump, setShowJump] = useState(false);
 	// The scroll container is unmounted whenever the view swaps to the placeholder / new-chat page (e.g. a messages reset)
 	// and comes back at scrollTop 0. A fresh container always starts at the end, otherwise the chat appears to jump to the top.
 	// Right after a conversation opens, its content keeps growing for a moment (images, highlighting, size estimates of
@@ -102,6 +105,7 @@ function ChatBody() {
 		if (el) {
 			beginSettle();
 			pinned.current = true;
+			setShowJump(false);
 			el.scrollTop = el.scrollHeight;
 		}
 	}, []);
@@ -114,6 +118,7 @@ function ChatBody() {
 			const el = scroller.current;
 			if (el && (pinned.current || settling())) {
 				pinned.current = true;
+				setShowJump(false);
 				el.scrollTop = el.scrollHeight;
 			}
 		});
@@ -124,6 +129,7 @@ function ChatBody() {
 	useLayoutEffect(() => {
 		beginSettle();
 		pinned.current = true;
+		setShowJump(false);
 		const el = scroller.current;
 		if (el) el.scrollTop = el.scrollHeight;
 	}, [session?.id, opening]);
@@ -131,7 +137,10 @@ function ChatBody() {
 	// Layout effect, not a passive one: content that arrives after the switch must not be painted at the top first.
 	useLayoutEffect(() => {
 		const el = scroller.current;
-		if (el && pinned.current) el.scrollTop = el.scrollHeight;
+		if (el && pinned.current) {
+			el.scrollTop = el.scrollHeight;
+			setShowJump(false);
+		}
 	});
 
 	if (!session && !booted) {
@@ -156,6 +165,7 @@ function ChatBody() {
 					<span className="truncate">{session.banner.text}</span>
 				</div>
 			)}
+			<div className="relative flex min-h-0 flex-1 flex-col">
 			<div
 				ref={attach}
 				onWheel={(e) => {
@@ -171,14 +181,23 @@ function ChatBody() {
 				onTouchCancel={() => (dragging.current = false)}
 				onPointerDown={() => (touched.current = true)}
 				onKeyDown={() => (touched.current = true)}
+				onClick={(e) => {
+					if ((e.target as HTMLElement).closest("[data-steps-toggle]")) {
+						touched.current = true;
+						pinned.current = false;
+						settleUntil.current = 0;
+					}
+				}}
 				onScroll={(e) => {
 					const el = e.currentTarget;
 					// Not the user: the browser moved the view (scroll anchoring, size estimates of skipped messages). Put it back at the end.
 					if (settling()) {
 						if (el.scrollHeight - el.scrollTop - el.clientHeight > 1) el.scrollTop = el.scrollHeight;
+						setShowJump(false);
 						return;
 					}
 					const gap = el.scrollHeight - el.scrollTop - el.clientHeight;
+					setShowJump(gap > 120);
 					// Finger on the screen and the view is off the end: the user is leaving the bottom, so unpin immediately
 					// instead of waiting for the 80px threshold (inside it, re-pinning fought the drag and made the view tremble).
 					if (dragging.current && gap > 2) pinned.current = false;
@@ -196,6 +215,25 @@ function ChatBody() {
 				<div key={session.id} ref={content} className="animate-fade">
 					<MessageList key={session.id} messages={session.messages} offset={session.messageOffset} onLoadEarlier={loadEarlier} tools={session.tools} streaming={session.isStreaming} pending={session.pending} />
 				</div>
+			</div>
+			{showJump && (
+				<button
+					type="button"
+					onClick={() => {
+						const el = scroller.current;
+						if (!el) return;
+						pinned.current = true;
+						touched.current = true;
+						setShowJump(false);
+						el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+					}}
+					className="absolute bottom-4 left-1/2 z-20 grid size-8 -translate-x-1/2 place-items-center rounded-full border border-ink-700 bg-ink-900/90 text-ink-300 shadow-lg shadow-black/30 backdrop-blur transition-colors hover:bg-ink-800 hover:text-ink-100"
+					title={t("jumpLatest")}
+					aria-label={t("jumpLatest")}
+				>
+					<ArrowDown className="size-4" />
+				</button>
+			)}
 			</div>
 			<Widgets placement="aboveEditor" />
 			<TaskPanel />

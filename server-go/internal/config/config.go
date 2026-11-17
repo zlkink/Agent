@@ -117,7 +117,7 @@ func (c *Config) PickModel(g *Gateway) string {
 }
 
 // AuthFor returns the header the relay must inject for the upstream protocol.
-// It mirrors gatewayAuth() in packages/core/src/agent/relay/gateway-relay.ts.
+// It mirrors the earlier Node host relay.
 func (g *Gateway) AuthFor(format string) (string, string) {
 	key := g.APIKey
 	switch g.Auth.Type {

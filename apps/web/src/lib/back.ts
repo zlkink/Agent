@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 
 /**
  * The system back gesture, as Android hands it to the page through `window.PrometheusBack` (see `installBackHandler`
- * and the MainActivity patch in apps/desktop/scripts/android-runtime.ts).
+ * and the Android MainActivity patch in the desktop shell).
  *
  * Without it the shell had nothing to ask, so back left the app from anywhere — including a full-screen composer the
  * user only wanted to close. Layers that can be closed register themselves here and the topmost one gets the gesture;

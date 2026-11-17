@@ -1,11 +1,11 @@
 [package]
-name = "helixagent-desktop"
-version = "0.30.29"
+name = "ramicore-desktop"
+version = "0.30.30"
 edition = "2021"
 rust-version = "1.77"
 
 [lib]
-name = "helixagent_desktop_lib"
+name = "ramicore_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
@@ -29,6 +29,7 @@ rustls-pki-types = "1"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-updater = "2"
+tauri-plugin-dialog = "2"
 tauri-plugin-single-instance = "2"
 
 [dependencies.tauri-plugin-notification]

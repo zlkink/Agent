@@ -4,7 +4,7 @@ import { createPortal } from "react-dom";
 import type { DirListing } from "@prometheus/protocol";
 import { localizeError } from "../lib/errors.ts";
 import { defineMessages, useT } from "../lib/i18n.ts";
-import { isLoopbackHost } from "../lib/backend.ts";
+import { isDesktopShell, isLoopbackHost } from "../lib/backend.ts";
 import { useStore } from "../lib/store.ts";
 import { Button, Input } from "./ui.tsx";
 
@@ -76,6 +76,22 @@ export function FolderPicker({ onPick, onClose }: { onPick: (path: string) => vo
 	const pickNative = async () => {
 		const client = useStore.getState().client;
 		if (!client) return;
+		// Desktop local mode: let Tauri/rfd draw the OS picker (the modern
+		// IFileOpenDialog on Windows). Remote servers still use the server's picker.
+		if (canNative && isDesktopShell()) {
+			setPicking(true);
+			setError(null);
+			try {
+				const { open } = await import("@tauri-apps/plugin-dialog");
+				const picked = await open({ directory: true, multiple: false, title: t("title"), defaultPath: listing?.path });
+				if (typeof picked === "string" && picked) onPick(picked);
+				return;
+			} catch {
+				// Older shell without the dialog plugin: fall through to the server picker.
+			} finally {
+				setPicking(false);
+			}
+		}
 		setPicking(true);
 		setError(null);
 		try {

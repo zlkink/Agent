@@ -57,6 +57,24 @@ if (mcpUrl) {
     alwaysLoad: true,
   };
 }
+const expandMcpEnv = (value) => {
+  if (typeof value === 'string') {
+    return value.replace(/\$\{([A-Za-z_]\w*)\}/g, (_, name) => process.env[name] ?? '');
+  }
+  if (Array.isArray(value)) return value.map(expandMcpEnv);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, expandMcpEnv(v)]));
+  }
+  return value;
+};
+try {
+  const extra = JSON.parse(process.env.PROMETHEUS_MCP_SERVERS || '{}');
+  for (const [name, cfg] of Object.entries(extra)) {
+    if (!mcpServers[name]) mcpServers[name] = expandMcpEnv(cfg);
+  }
+} catch (err) {
+  log(`ignoring invalid PROMETHEUS_MCP_SERVERS: ${err?.message || err}`);
+}
 
 let q = null;
 let pendingModel = '';

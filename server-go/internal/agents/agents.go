@@ -1,6 +1,6 @@
 // Package agents detects the external agent CLIs (Claude Code, Codex) and checks
 // whether a newer version is published. It is the Go counterpart of
-// packages/core/src/agent/install.ts.
+// earlier Node host.
 package agents
 
 import (

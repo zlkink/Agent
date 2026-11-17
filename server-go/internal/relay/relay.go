@@ -1,6 +1,6 @@
 // Package relay is a loopback reverse proxy that hides the real gateway key from
 // the agent subprocess. It is the Go counterpart of GatewayRelay in
-// packages/core/src/agent/relay/gateway-relay.ts.
+// earlier Node host relay.
 package relay
 
 import (

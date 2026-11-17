@@ -12,22 +12,23 @@ import (
 )
 
 type Session struct {
-	ID             string           `json:"id"`
-	Cwd            string           `json:"cwd"`
-	Name           string           `json:"name"`
-	Runtime        string           `json:"runtime"`
-	Created        time.Time        `json:"created"`
-	Modified       time.Time        `json:"modified"`
-	Archived       bool             `json:"archived"`
-	PermissionMode string           `json:"permissionMode,omitempty"`
-	Provider       string           `json:"provider,omitempty"`
-	Model          string           `json:"model,omitempty"`
-	InputTokens    int              `json:"inputTokens,omitempty"`
-	OutputTokens   int              `json:"outputTokens,omitempty"`
-	CacheRead      int              `json:"cacheRead,omitempty"`
-	CacheWrite     int              `json:"cacheWrite,omitempty"`
-	Worktree       map[string]any   `json:"worktree,omitempty"`
-	Messages       []map[string]any `json:"messages"`
+	ID              string           `json:"id"`
+	Cwd             string           `json:"cwd"`
+	Name            string           `json:"name"`
+	Runtime         string           `json:"runtime"`
+	Created         time.Time        `json:"created"`
+	Modified        time.Time        `json:"modified"`
+	Archived        bool             `json:"archived"`
+	PermissionMode  string           `json:"permissionMode,omitempty"`
+	Provider        string           `json:"provider,omitempty"`
+	Model           string           `json:"model,omitempty"`
+	InputTokens     int              `json:"inputTokens,omitempty"`
+	OutputTokens    int              `json:"outputTokens,omitempty"`
+	ReasoningTokens int              `json:"reasoningTokens,omitempty"`
+	CacheRead       int              `json:"cacheRead,omitempty"`
+	CacheWrite      int              `json:"cacheWrite,omitempty"`
+	Worktree        map[string]any   `json:"worktree,omitempty"`
+	Messages        []map[string]any `json:"messages"`
 }
 
 type State struct {

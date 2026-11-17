@@ -9,12 +9,16 @@ import (
 	"time"
 
 	"prometheus-go/internal/acp"
+	"prometheus-go/internal/mcpconfig"
 )
 
 type acpPromptState struct {
 	mu           sync.Mutex
 	started      bool
 	text         strings.Builder
+	content      []any
+	thinkingAt   int
+	textAt       int
 	usage        map[string]any
 	toolsStarted map[string]bool
 	toolsEnded   map[string]bool
@@ -36,7 +40,7 @@ func (h *Host) runAcpPrompt(s *Session, text string) {
 		h.finishError(s, err)
 		return
 	}
-	state := &acpPromptState{toolsStarted: map[string]bool{}, toolsEnded: map[string]bool{}}
+	state := &acpPromptState{toolsStarted: map[string]bool{}, toolsEnded: map[string]bool{}, thinkingAt: -1, textAt: -1}
 	s.mu.Lock()
 	s.acpState = state
 	s.mu.Unlock()
@@ -123,6 +127,23 @@ func (h *Host) ensureAcp(s *Session) (*acp.Client, string, error) {
 			"headers": []any{map[string]any{"name": "Authorization", "value": "Bearer " + token}},
 		})
 	}
+	for name, cfg := range mcpconfig.Load(h.cfg.DataDir) {
+		if str(cfg["command"]) != "" {
+			args := []any{}
+			if a, ok := cfg["args"].([]any); ok {
+				args = a
+			}
+			mcp = append(mcp, map[string]any{"type": "stdio", "name": name, "command": cfg["command"], "args": args})
+		} else if url := str(cfg["url"]); url != "" {
+			headers := []any{}
+			if hs, ok := cfg["headers"].(map[string]any); ok {
+				for k, v := range hs {
+					headers = append(headers, map[string]any{"name": k, "value": str(v)})
+				}
+			}
+			mcp = append(mcp, map[string]any{"type": "http", "name": name, "url": url, "headers": headers})
+		}
+	}
 	raw, err := c.Request(initCtx, "session/new", map[string]any{"cwd": s.Cwd, "mcpServers": mcp})
 	if err != nil {
 		c.Close()
@@ -202,17 +223,25 @@ func (h *Host) acpText(s *Session, state *acpPromptState, text, kind string) {
 		h.event(s.ID, map[string]any{"type": "message_start", "message": msg})
 	}
 	if kind == "thinking" {
-		h.event(s.ID, map[string]any{
-			"type":  "message_update",
-			"delta": map[string]any{"type": "thinking_delta", "contentIndex": 0, "delta": text},
-		})
+		if state.thinkingAt < 0 {
+			state.content = append(state.content, map[string]any{"type": "thinking", "thinking": ""})
+			state.thinkingAt = len(state.content) - 1
+			state.textAt = -1
+		}
+		block := state.content[state.thinkingAt].(map[string]any)
+		block["thinking"] = str(block["thinking"]) + text
+		h.event(s.ID, map[string]any{"type": "message_update", "delta": map[string]any{"type": "thinking_delta", "contentIndex": state.thinkingAt, "delta": text}})
 		return
 	}
+	if state.textAt < 0 {
+		state.content = append(state.content, map[string]any{"type": "text", "text": ""})
+		state.textAt = len(state.content) - 1
+		state.thinkingAt = -1
+	}
+	block := state.content[state.textAt].(map[string]any)
+	block["text"] = str(block["text"]) + text
 	state.text.WriteString(text)
-	h.event(s.ID, map[string]any{
-		"type":  "message_update",
-		"delta": map[string]any{"type": "text_delta", "contentIndex": 0, "delta": text},
-	})
+	h.event(s.ID, map[string]any{"type": "message_update", "delta": map[string]any{"type": "text_delta", "contentIndex": state.textAt, "delta": text}})
 }
 
 func (h *Host) acpTool(s *Session, state *acpPromptState, u map[string]any, update bool) {
@@ -310,9 +339,9 @@ func (h *Host) finishAcp(s *Session, state *acpPromptState, err error) {
 	state.mu.Lock()
 	text := state.text.String()
 	usage := state.usage
+	content := append([]any(nil), state.content...)
 	state.mu.Unlock()
-	content := []any{}
-	if text != "" {
+	if len(content) == 0 && text != "" {
 		content = append(content, map[string]any{"type": "text", "text": text})
 	}
 	stop := "stop"

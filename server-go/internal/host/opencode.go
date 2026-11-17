@@ -8,19 +8,23 @@ import (
 	"sync"
 	"time"
 
+	"prometheus-go/internal/mcpconfig"
 	"prometheus-go/internal/opencode"
 )
 
 type ocPromptState struct {
-	mu       sync.Mutex
-	started  bool
-	text     strings.Builder
-	parts    map[string]string
-	tools    map[string]bool
-	ended    map[string]bool
-	done     chan struct{}
-	doneOnce sync.Once
-	err      error
+	mu         sync.Mutex
+	started    bool
+	text       strings.Builder
+	content    []any
+	thinkingAt int
+	textAt     int
+	parts      map[string]string
+	tools      map[string]bool
+	ended      map[string]bool
+	done       chan struct{}
+	doneOnce   sync.Once
+	err        error
 }
 
 func (st *ocPromptState) finish(err error) {
@@ -38,7 +42,7 @@ func (h *Host) runOpenCodePrompt(s *Session, text string) {
 		h.finishError(s, err)
 		return
 	}
-	state := &ocPromptState{parts: map[string]string{}, tools: map[string]bool{}, ended: map[string]bool{}, done: make(chan struct{})}
+	state := &ocPromptState{parts: map[string]string{}, tools: map[string]bool{}, ended: map[string]bool{}, done: make(chan struct{}), thinkingAt: -1, textAt: -1}
 	s.mu.Lock()
 	s.ocState = state
 	s.mu.Unlock()
@@ -113,6 +117,28 @@ func (h *Host) ensureOpenCode(s *Session) (*opencode.Client, string, error) {
 			},
 		})
 	}
+	for name, cfg := range mcpconfig.Load(h.cfg.DataDir) {
+		mc := map[string]any{"enabled": true}
+		if str(cfg["command"]) != "" {
+			mc["type"] = "local"
+			cmd := []any{cfg["command"]}
+			if a, ok := cfg["args"].([]any); ok {
+				cmd = append(cmd, a...)
+			}
+			mc["command"] = cmd
+			if e, ok := cfg["env"].(map[string]any); ok {
+				mc["environment"] = e
+			}
+		} else {
+			mc["type"] = "remote"
+			mc["url"] = cfg["url"]
+			mc["oauth"] = false
+			if hs, ok := cfg["headers"].(map[string]any); ok {
+				mc["headers"] = hs
+			}
+		}
+		_, _ = c.Request(ctx, "POST", "/mcp", s.Cwd, map[string]any{"name": name, "config": mc})
+	}
 	eventCtx, eventCancel := context.WithCancel(context.Background())
 	s.mu.Lock()
 	s.ocClient = c
@@ -170,7 +196,7 @@ func (h *Host) ocEvent(s *Session, typ string, p map[string]any) {
 			return
 		}
 		switch str(part["type"]) {
-		case "text":
+		case "text", "reasoning", "thinking":
 			full := str(part["text"])
 			partID := str(part["id"])
 			state.mu.Lock()
@@ -179,7 +205,11 @@ func (h *Host) ocEvent(s *Session, typ string, p map[string]any) {
 				delta := full[len(have):]
 				state.parts[partID] = full
 				state.mu.Unlock()
-				h.ocText(s, state, delta)
+				if str(part["type"]) == "reasoning" || str(part["type"]) == "thinking" {
+					h.ocThinking(s, state, delta)
+				} else {
+					h.ocText(s, state, delta)
+				}
 			} else {
 				state.mu.Unlock()
 			}
@@ -224,12 +254,35 @@ func (h *Host) ocText(s *Session, state *ocPromptState, delta string) {
 	}
 	h.ocStartMessage(s, state)
 	state.mu.Lock()
+	if state.textAt < 0 {
+		state.content = append(state.content, map[string]any{"type": "text", "text": ""})
+		state.textAt = len(state.content) - 1
+		state.thinkingAt = -1
+	}
+	block := state.content[state.textAt].(map[string]any)
+	block["text"] = str(block["text"]) + delta
 	state.text.WriteString(delta)
+	idx := state.textAt
 	state.mu.Unlock()
-	h.event(s.ID, map[string]any{
-		"type":  "message_update",
-		"delta": map[string]any{"type": "text_delta", "contentIndex": 0, "delta": delta},
-	})
+	h.event(s.ID, map[string]any{"type": "message_update", "delta": map[string]any{"type": "text_delta", "contentIndex": idx, "delta": delta}})
+}
+
+func (h *Host) ocThinking(s *Session, state *ocPromptState, delta string) {
+	if delta == "" {
+		return
+	}
+	h.ocStartMessage(s, state)
+	state.mu.Lock()
+	if state.thinkingAt < 0 {
+		state.content = append(state.content, map[string]any{"type": "thinking", "thinking": ""})
+		state.thinkingAt = len(state.content) - 1
+		state.textAt = -1
+	}
+	block := state.content[state.thinkingAt].(map[string]any)
+	block["thinking"] = str(block["thinking"]) + delta
+	idx := state.thinkingAt
+	state.mu.Unlock()
+	h.event(s.ID, map[string]any{"type": "message_update", "delta": map[string]any{"type": "thinking_delta", "contentIndex": idx, "delta": delta}})
 }
 
 func (h *Host) ocTool(s *Session, state *ocPromptState, part map[string]any) {
@@ -270,13 +323,13 @@ func (h *Host) ocTool(s *Session, state *ocPromptState, part map[string]any) {
 func (h *Host) finishOpenCode(s *Session, state *ocPromptState, err error) {
 	state.mu.Lock()
 	text := state.text.String()
+	content := append([]any(nil), state.content...)
 	state.mu.Unlock()
 	if !state.started && text == "" {
 		// The model produced no assistant message; still close the turn.
 		h.ocStartMessage(s, state)
 	}
-	content := []any{}
-	if text != "" {
+	if len(content) == 0 && text != "" {
 		content = append(content, map[string]any{"type": "text", "text": text})
 	}
 	stop := "stop"

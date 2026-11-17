@@ -71,7 +71,8 @@ function makeContext(name) {
       rpcs.set(`${name}.${id}`, fn);
     },
     route(method, path, handler) {
-      routes.push({ plugin: name, method, path, handler });
+      const full = path.startsWith("/plugins/") ? path : "/plugins/" + name + (path.startsWith("/") ? path : "/" + path);
+      routes.push({ plugin: name, method, path: full, handler });
     },
     panel(panel) {
       if (panel?.id) panels.push({ ...panel, plugin: name });

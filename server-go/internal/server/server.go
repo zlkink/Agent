@@ -88,9 +88,15 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
+func oauthCallback(r *http.Request) bool {
+	// Third-party redirects arrive without the SameSite=Strict cookie. The
+	// connector verifies the one-time state and PKCE verifier itself.
+	return r.Method == "GET" && r.URL.Path == "/plugins/connectors/oauth/callback"
+}
+
 func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if s.Token == "" || s.authorized(r) {
+		if s.Token == "" || s.authorized(r) || oauthCallback(r) {
 			next(w, r)
 			return
 		}
@@ -114,6 +120,12 @@ func (s *Server) ApplyNetwork(lan bool, port int) error {
 	}
 	if port < 1024 || port > 65535 {
 		return fmt.Errorf("端口需在 1024–65535 之间")
+	}
+	// Windows allows two processes to bind the same TCP port with SO_REUSEADDR,
+	// so net.Listen succeeding is not enough. Probe first and report the clash.
+	if c, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 500*time.Millisecond); err == nil {
+		_ = c.Close()
+		return fmt.Errorf("端口 %d 已被其他程序占用，请换一个端口", port)
 	}
 	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
@@ -202,7 +214,7 @@ func (s *Server) lanSession(r *http.Request) string {
 
 func (s *Server) lanAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if s.lanSession(r) == "" {
+		if s.lanSession(r) == "" && !oauthCallback(r) {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
