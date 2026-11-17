@@ -9,15 +9,54 @@
     <script>
       // Shows startup errors on screen: in an old WebView a script failure otherwise leaves only the dark window background.
       (function () {
-        var shown = false;
-        function show(msg) {
-          if (shown || document.getElementById("root") && document.getElementById("root").childNodes.length) return;
-          shown = true;
-          var d = document.createElement("pre");
-          d.style.cssText = "position:fixed;inset:0;margin:0;padding:24px;overflow:auto;white-space:pre-wrap;background:#1c1814;color:#f2c9a0;font:13px/1.5 ui-monospace,Menlo,monospace;z-index:99999";
-          d.textContent = ["RamiCore failed to start", msg, navigator.userAgent].join(String.fromCharCode(10, 10));
-          (document.body || document.documentElement).appendChild(d);
+        var overlay = null;
+        function rootHasContent() {
+          var r = document.getElementById("root");
+          return !!(r && r.childNodes.length);
         }
+        function clear() {
+          if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
+          overlay = null;
+        }
+        function show(msg) {
+          // The interface is up: a late error is not a startup failure and must not cover it.
+          if (rootHasContent()) { clear(); return; }
+          if (overlay) return;
+          overlay = document.createElement("pre");
+          overlay.id = "boot-error";
+          overlay.style.cssText = "position:fixed;inset:0;margin:0;padding:24px;overflow:auto;white-space:pre-wrap;background:#1c1814;color:#f2c9a0;font:13px/1.5 ui-monospace,Menlo,monospace;z-index:99999";
+          overlay.textContent = ["RamiCore failed to start", msg, navigator.userAgent].join(String.fromCharCode(10, 10));
+          (document.body || document.documentElement).appendChild(overlay);
+        }
+        // Once React puts anything into #root the fallback is stale: remove it so
+        // it can never sit permanently on top of a working interface.
+        function watchRoot() {
+          var r = document.getElementById("root");
+          if (!r) return false;
+          if (rootHasContent()) clear();
+          if (typeof MutationObserver !== "undefined") {
+            new MutationObserver(function () { if (rootHasContent()) clear(); }).observe(r, { childList: true });
+          }
+          return true;
+        }
+        // Browser extensions inject scripts into every page. Their failures
+        // (typically a wallet fighting over window.ethereum) are not RamiCore's
+        // startup errors and must not replace the app with an error page.
+        function foreignSource(src) {
+          return /^(chrome|moz|safari-web|ms-browser)-extension:\/\//.test(src || "");
+        }
+        function foreign(e) {
+          var src = e.filename || "";
+          if (foreignSource(src)) return true;
+          if (src && location.origin && src.indexOf(location.origin) !== 0) return true;
+          return /Cannot redefine property: ethereum/.test(e.message || "");
+        }
+        function foreignReason(reason) {
+          var text = reason && (reason.stack || reason.message) || String(reason || "");
+          return foreignSource(text) || /(chrome|moz|safari-web|ms-browser)-extension:/.test(text) || /Cannot redefine property: ethereum/.test(text);
+        }
+        watchRoot();
+        window.addEventListener("DOMContentLoaded", watchRoot);
         // The stylesheet is wrapped in cascade layers (Safari 15.4+); without them every style is dropped and the UI is unusable.
         window.addEventListener("DOMContentLoaded", function () {
           if (typeof CSSLayerBlockRule !== "undefined") return;
@@ -26,8 +65,14 @@
           d.textContent = "This system's web engine is too old to display RamiCore correctly (needs Safari 15.4 or newer). On macOS 10.15 open Apple menu > About This Mac > Software Update and install the latest Safari update, then restart RamiCore. Engine: " + navigator.userAgent;
           document.body.appendChild(d);
         });
-        window.addEventListener("error", function (e) { show((e.message || "error") + (e.filename ? String.fromCharCode(10) + e.filename + ":" + e.lineno + ":" + e.colno : "")); });
-        window.addEventListener("unhandledrejection", function (e) { show("Unhandled rejection: " + (e.reason && (e.reason.stack || e.reason.message) || e.reason)); });
+        window.addEventListener("error", function (e) {
+          if (foreign(e)) return;
+          show((e.message || "error") + (e.filename ? String.fromCharCode(10) + e.filename + ":" + e.lineno + ":" + e.colno : ""));
+        });
+        window.addEventListener("unhandledrejection", function (e) {
+          if (foreignReason(e.reason)) return;
+          show("Unhandled rejection: " + (e.reason && (e.reason.stack || e.reason.message) || e.reason));
+        });
         setTimeout(function () { var r = document.getElementById("root"); if (r && !r.childNodes.length) show("The interface did not render within 8 seconds."); }, 8000);
       })();
     </script>
@@ -69,11 +114,11 @@
       #splash .sp-hint { position: absolute; top: calc(100% + 18px); left: 50%; transform: translateX(-50%); white-space: nowrap;
         font: 12px/1.4 "IBM Plex Sans", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif; color: var(--sp-fg); opacity: 0;
         animation: sp-hint 0.6s 3.5s forwards; }
-      @keyframes sp-hint { to { opacity: 0.45; } }
+      @keyframes sp-hint { to { opacity: 0.45; } }
       #splash.sp-still *, #splash.sp-still *::after { animation: none !important; }
       #splash.sp-still .sp-outline { display: none; }
       #splash.sp-still .sp-fill, #splash.sp-still .sp-word, #splash.sp-still .sp-bar, #splash.sp-still .sp-halo { opacity: 1; transform: none; }
-      #splash.sp-still .sp-word { letter-spacing: 0.32em; margin-right: -0.32em; }
+      #splash.sp-still .sp-word { letter-spacing: 0.32em; margin-right: -0.32em; }
       @keyframes sp-draw { to { stroke-dashoffset: 0; } }
       @keyframes sp-fadeout { to { opacity: 0; } }
       @keyframes sp-fadein { to { opacity: 1; } }
@@ -129,7 +174,7 @@
         try { if (window.PrometheusHost && window.PrometheusHost.theme) window.PrometheusHost.theme(!light); } catch (e) {}
         reveal();
         // Only the in-app switches stop it: Windows with "animation effects" off reports reduced motion on many machines.
-        if (p.motion === false || p.splash === false) return el.classList.add("sp-still");
+        if (p.motion === false || p.splash === false) return el.classList.add("sp-still");
       })();
     </script>
     <div id="root"></div>
