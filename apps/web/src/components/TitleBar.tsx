@@ -270,9 +270,17 @@ function ThemeToggle() {
 
 function WindowControls() {
 	const t = useT(M);
+	// macOS' green button opens a native full-screen Space; maximize() would only
+	// fill the current screen and leaves the menu bar visible.
+	const isMac = /mac/i.test(String(navigator.platform || navigator.userAgent));
 	const act = async (op: "minimize" | "toggleMaximize" | "close") => {
 		const { getCurrentWindow } = await import("@tauri-apps/api/window");
-		await getCurrentWindow()[op]();
+		const win = getCurrentWindow();
+		if (op === "toggleMaximize" && isMac) {
+			await win.setFullscreen(!(await win.isFullscreen()));
+			return;
+		}
+		await win[op]();
 	};
 	const base = "grid h-full w-11 place-items-center text-ink-400 transition-colors";
 	return (
@@ -302,11 +310,14 @@ export function TitleBar({ onToggleSidebar, bare }: { onToggleSidebar?: () => vo
 	const firstText = firstUser ? (typeof firstUser.content === "string" ? firstUser.content : firstUser.content.map((c) => (c.type === "text" ? c.text : "")).join("")).replace(/^<skill name="([^"]*)"[^>]*>[\s\S]*?<\/skill>\s*/, "/skill:$1 ") : "";
 	const name = title || session?.name || summary?.name || firstText.trim() || localizeError(summary?.firstMessage ?? "") || t("newChat");
 	const isMacPlatform = /mac/i.test(String(navigator.platform || navigator.userAgent));
-	const customWindowDoubleClick = isMacPlatform || /linux/i.test(String(navigator.platform || navigator.userAgent));
 	const toggleWindow = async () => {
-		if (!desktop || !customWindowDoubleClick) return;
+		if (!desktop) return;
 		const { getCurrentWindow } = await import("@tauri-apps/api/window");
-		await getCurrentWindow().toggleMaximize();
+		const win = getCurrentWindow();
+		// Match the macOS green button: a double-click enters native full screen
+		// (its own Space) rather than zooming inside the current screen.
+		if (isMacPlatform) await win.setFullscreen(!(await win.isFullscreen()));
+		else await win.toggleMaximize();
 	};
 
 	let heading: React.ReactNode = null;
@@ -330,10 +341,15 @@ export function TitleBar({ onToggleSidebar, bare }: { onToggleSidebar?: () => vo
 
 	return (
 		<header
-			onDoubleClick={
-				customWindowDoubleClick
+			onMouseUp={
+				// Tauri's drag-region script toggles maximize on macOS on the second
+				// mouseup. Stop it here (React's listener sits inside <body>) and use
+				// native full screen instead, otherwise both handlers race.
+				isMacPlatform
 					? (e) => {
+							if (e.detail !== 2) return;
 							if ((e.target as HTMLElement).closest("button,input,select,textarea,a")) return;
+							e.stopPropagation();
 							void toggleWindow();
 						}
 					: undefined
