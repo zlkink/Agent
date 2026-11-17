@@ -34,6 +34,8 @@ const M = defineMessages({
 		handBack: "交还给 Agent",
 		openedByAgent: "由 Agent 打开",
 		windowMode: "浏览器在独立窗口中运行，这里同步显示",
+		takenOverBrowser: "已接管当前浏览器",
+		takenOverBrowserHint: "画面可能不会在这里显示，可以直接在 Chrome 中操作；Agent 会同步执行操作。",
 	},
 	en: {
 		newTab: "New tab",
@@ -54,6 +56,8 @@ const M = defineMessages({
 		handBack: "Hand back to agent",
 		openedByAgent: "Opened by the agent",
 		windowMode: "The browser runs in its own window; mirrored here",
+		takenOverBrowser: "Using your current browser",
+		takenOverBrowserHint: "Its page may not be mirrored here. You can keep working in Chrome; the agent applies its actions there.",
 	},
 });
 
@@ -103,6 +107,7 @@ export function BrowserView() {
 	const [address, setAddress] = useState<string | null>(null);
 	const [popover, setPopover] = useState<"settings" | "downloads" | null>(null);
 	const activeRef = useRef<string | null>(null);
+	const [noFrame, setNoFrame] = useState(false);
 
 	const onFrame = useCallback((jpeg: Uint8Array, width: number, height: number, tab: string) => {
 		if (tab === activeRef.current) view.current?.draw(jpeg, width, height);
@@ -119,6 +124,16 @@ export function BrowserView() {
 	const running = state?.status === "running" && !!state.tabs.length;
 
 	// A different tab or page: the address bar shows where we are now, unless the user is typing in it.
+	useEffect(() => {
+		if (state?.mode !== "system" || !active || active.hasFrame) {
+			setNoFrame(false);
+			return;
+		}
+		setNoFrame(false);
+		const timer = setTimeout(() => setNoFrame(true), 2000);
+		return () => clearTimeout(timer);
+	}, [state?.mode, active?.id, active?.hasFrame]);
+
 	useEffect(() => {
 		setAddress(null);
 	}, [active?.id, active?.url]);
@@ -266,6 +281,15 @@ export function BrowserView() {
 					canGoForward={!!active?.canGoForward}
 				/>
 				{running && active && isBlank(active.url) && !active.loading && !agentBusy && <StartPage onGo={navigate} />}
+				{noFrame && active && (
+					<div className="pointer-events-none absolute inset-0 z-10 grid place-items-center bg-ink-950/55 p-4 text-center backdrop-blur-[1px]">
+						<div className="max-w-sm rounded-xl border border-ink-700 bg-ink-900/95 px-4 py-3 shadow-xl">
+							<Globe className="mx-auto mb-2 size-6 text-ember-400" />
+							<p className="text-sm font-medium text-ink-100">{t("takenOverBrowser")}</p>
+							<p className="mt-1 text-xs leading-relaxed text-ink-400">{t("takenOverBrowserHint")}</p>
+						</div>
+					</div>
+				)}
 				{running && active?.crashed && <CrashedPage onReload={() => history("reload")} />}
 				{running && active?.dialog && <PageDialog tab={active} agentBusy={agentBusy} />}
 				{running && active?.fileChooser && !agentBusy && <FileChooser tab={active} />}

@@ -15,6 +15,8 @@ export interface TabInfo {
 	loading: boolean;
 	canGoBack: boolean;
 	canGoForward: boolean;
+	/** A screencast frame has arrived for this tab. */
+	hasFrame?: boolean;
 	/** Opened by the agent (shown with a badge). */
 	agent: boolean;
 	dialog?: DialogInfo;

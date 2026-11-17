@@ -1104,6 +1104,7 @@ var Tab = class {
       canGoBack: this.canGoBack,
       canGoForward: this.canGoForward,
       agent: this.agent,
+      hasFrame: !!this.lastFrame,
       ...this.dialog ? { dialog: this.dialog } : {},
       ...this.fileChooser ? { fileChooser: { multiple: this.fileChooser.multiple } } : {},
       ...this.crashed ? { crashed: true } : {}
@@ -1399,6 +1400,7 @@ var Tab = class {
     const height = meta.deviceHeight ?? this.host.viewport().height;
     this.lastFrame = { data: buf, width, height };
     this.host.view({ k: "frame", tab: this.id, seq: ++this.frameSeq, width, height }, buf, true);
+    this.host.changed();
     const now = Date.now();
     const wait = Math.max(0, this.lastFrameAt + this.host.screencastParams().minIntervalMs - now);
     this.lastFrameAt = now + wait;

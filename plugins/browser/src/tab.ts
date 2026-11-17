@@ -68,6 +68,7 @@ export class Tab {
 			canGoBack: this.canGoBack,
 			canGoForward: this.canGoForward,
 			agent: this.agent,
+			hasFrame: !!this.lastFrame,
 			...(this.dialog ? { dialog: this.dialog } : {}),
 			...(this.fileChooser ? { fileChooser: { multiple: this.fileChooser.multiple } } : {}),
 			...(this.crashed ? { crashed: true } : {}),
@@ -376,6 +377,7 @@ export class Tab {
 		const height = meta.deviceHeight ?? this.host.viewport().height;
 		this.lastFrame = { data: buf, width, height };
 		this.host.view({ k: "frame", tab: this.id, seq: ++this.frameSeq, width, height }, buf, true);
+		this.host.changed();
 		// Acknowledging asks for the next frame; holding the ack back is how the frame rate is capped.
 		const now = Date.now();
 		const wait = Math.max(0, this.lastFrameAt + this.host.screencastParams().minIntervalMs - now);
