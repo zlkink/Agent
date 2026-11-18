@@ -134,15 +134,18 @@ type Session struct {
 	ocState        *ocPromptState
 	ocCancel       context.CancelFunc
 	messages       []map[string]any
-	usage          usageTotals
-	goal           map[string]any
-	worktree       map[string]any
-	contextTokens  int
-	contextWindow  int
-	steerQueue     []queuedPrompt
-	followUps      []queuedPrompt
-	compacting     bool
-	lastCompact    time.Time
+	// liveMessage exposes the assistant message that is still being generated,
+	// so opening a running conversation mid-turn does not look empty.
+	liveMessage   func() map[string]any
+	usage         usageTotals
+	goal          map[string]any
+	worktree      map[string]any
+	contextTokens int
+	contextWindow int
+	steerQueue    []queuedPrompt
+	followUps     []queuedPrompt
+	compacting    bool
+	lastCompact   time.Time
 }
 
 type queuedPrompt struct {
@@ -658,6 +661,18 @@ func (s *Session) appendMessage(m map[string]any) {
 	s.mu.Unlock()
 }
 
+// setLiveMessage registers (or clears, with nil) the builder for the assistant
+// message currently being streamed into this session.
+func (s *Session) setLiveMessage(fn func() map[string]any) {
+	s.mu.Lock()
+	s.liveMessage = fn
+	s.mu.Unlock()
+}
+
+func (s *Session) clearLiveMessage() {
+	s.setLiveMessage(nil)
+}
+
 func (s *Session) closeClient() {
 	s.mu.Lock()
 	sc := s.sc
@@ -770,6 +785,7 @@ func (h *Host) snapshot(s *Session) map[string]any {
 	messages := make([]map[string]any, len(s.messages))
 	copy(messages, s.messages)
 	streaming := s.Streaming
+	live := s.liveMessage
 	steering, followUp := queueTextsLocked(s)
 	sessionProvider, sessionModel := s.Provider, s.ModelID
 	mode := s.PermissionMode
@@ -781,6 +797,12 @@ func (h *Host) snapshot(s *Session) map[string]any {
 		runtimeID = "claude-code"
 	}
 	s.mu.Unlock()
+
+	if streaming && live != nil {
+		if m := live(); m != nil {
+			messages = append(messages, m)
+		}
+	}
 
 	provider, modelID := h.modelFor(runtimeID)
 	if sessionModel != "" {
@@ -879,6 +901,7 @@ func (h *Host) endRun(s *Session) {
 	}
 	s.mu.Lock()
 	s.Streaming = false
+	s.liveMessage = nil
 	s.Modified = time.Now()
 	var next *queuedPrompt
 	if len(s.steerQueue) > 0 {
@@ -1085,6 +1108,24 @@ func (h *Host) runPrompt(s *Session, text string, images ...[]any) {
 	thinkingAt, textAt := -1, -1
 	toolAt := map[string]int{}
 	toolBlocks := map[string]map[string]any{}
+	// Deltas mutate the content blocks in place; the live-message snapshot used
+	// by session.open takes the same lock so a reopen sees a consistent picture.
+	var liveMu sync.Mutex
+	s.setLiveMessage(func() map[string]any {
+		liveMu.Lock()
+		defer liveMu.Unlock()
+		snap := cloneMap(assistant)
+		snap["content"] = content
+		raw, err := json.Marshal(snap)
+		if err != nil {
+			return nil
+		}
+		var out map[string]any
+		if json.Unmarshal(raw, &out) != nil {
+			return nil
+		}
+		return out
+	})
 
 	parseInput := func(raw json.RawMessage) any {
 		if len(raw) == 0 {
@@ -1100,6 +1141,7 @@ func (h *Host) runPrompt(s *Session, text string, images ...[]any) {
 		if delta == "" {
 			return
 		}
+		liveMu.Lock()
 		if thinkingAt < 0 {
 			content = append(content, map[string]any{"type": "thinking", "thinking": ""})
 			thinkingAt = len(content) - 1
@@ -1107,15 +1149,18 @@ func (h *Host) runPrompt(s *Session, text string, images ...[]any) {
 		}
 		block := content[thinkingAt].(map[string]any)
 		block["thinking"] = str(block["thinking"]) + delta
+		idx := thinkingAt
+		liveMu.Unlock()
 		h.event(s.ID, map[string]any{
 			"type":  "message_update",
-			"delta": map[string]any{"type": "thinking_delta", "contentIndex": thinkingAt, "delta": delta},
+			"delta": map[string]any{"type": "thinking_delta", "contentIndex": idx, "delta": delta},
 		})
 	}
 	appendText := func(delta string) {
 		if delta == "" {
 			return
 		}
+		liveMu.Lock()
 		if textAt < 0 {
 			content = append(content, map[string]any{"type": "text", "text": ""})
 			textAt = len(content) - 1
@@ -1124,9 +1169,11 @@ func (h *Host) runPrompt(s *Session, text string, images ...[]any) {
 		block := content[textAt].(map[string]any)
 		block["text"] = str(block["text"]) + delta
 		textBuf.WriteString(delta)
+		idx := textAt
+		liveMu.Unlock()
 		h.event(s.ID, map[string]any{
 			"type":  "message_update",
-			"delta": map[string]any{"type": "text_delta", "contentIndex": textAt, "delta": delta},
+			"delta": map[string]any{"type": "text_delta", "contentIndex": idx, "delta": delta},
 		})
 	}
 	startTool := func(id, name string, input json.RawMessage, complete bool) {
@@ -1134,6 +1181,7 @@ func (h *Host) runPrompt(s *Session, text string, images ...[]any) {
 			return
 		}
 		args := parseInput(input)
+		liveMu.Lock()
 		if idx, ok := toolAt[id]; ok {
 			block := toolBlocks[id]
 			if name != "" {
@@ -1141,6 +1189,9 @@ func (h *Host) runPrompt(s *Session, text string, images ...[]any) {
 			}
 			if complete {
 				block["arguments"] = args
+			}
+			liveMu.Unlock()
+			if complete {
 				h.event(s.ID, map[string]any{
 					"type":  "message_update",
 					"delta": map[string]any{"type": "toolcall_end", "contentIndex": idx, "toolCall": block},
@@ -1154,6 +1205,7 @@ func (h *Host) runPrompt(s *Session, text string, images ...[]any) {
 		toolAt[id] = idx
 		toolBlocks[id] = block
 		thinkingAt, textAt = -1, -1
+		liveMu.Unlock()
 		h.event(s.ID, map[string]any{
 			"type":  "message_update",
 			"delta": map[string]any{"type": "toolcall_start", "contentIndex": idx, "id": id, "name": name},
@@ -1276,6 +1328,7 @@ func (h *Host) runPrompt(s *Session, text string, images ...[]any) {
 	if err != nil {
 		final["errorMessage"] = err.Error()
 	}
+	s.clearLiveMessage()
 	s.appendMessage(final)
 	h.event(s.ID, map[string]any{"type": "message_end", "message": final})
 	h.event(s.ID, map[string]any{"type": "turn_end"})
@@ -1437,6 +1490,7 @@ func setSessionModel(s *Session, m map[string]any) {
 }
 
 func (h *Host) finishError(s *Session, err error) {
+	s.clearLiveMessage()
 	msg := map[string]any{
 		"role": "assistant", "content": []any{}, "provider": h.cfg.Provider,
 		"model": h.cfg.Model, "usage": zeroUsage(), "stopReason": "error",
@@ -1458,7 +1512,7 @@ func (h *Host) dispatch(method string, raw json.RawMessage) (any, error) {
 	switch method {
 	case "host.info":
 		return map[string]any{
-			"version": "0.30.40-ramicore", "piVersion": h.cfg.PIVersion, "protocol": protocolVersion,
+			"version": "0.30.41-ramicore", "piVersion": h.cfg.PIVersion, "protocol": protocolVersion,
 			"cwd": h.cfg.Cwd, "platform": runtime.GOOS,
 		}, nil
 

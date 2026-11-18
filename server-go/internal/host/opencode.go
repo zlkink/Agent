@@ -46,6 +46,26 @@ func (h *Host) runOpenCodePrompt(s *Session, text string) {
 	s.mu.Lock()
 	s.ocState = state
 	s.mu.Unlock()
+	s.setLiveMessage(func() map[string]any {
+		state.mu.Lock()
+		defer state.mu.Unlock()
+		if !state.started || len(state.content) == 0 {
+			return nil
+		}
+		raw, err := json.Marshal(map[string]any{
+			"role": "assistant", "content": state.content, "provider": "opencode",
+			"model": "default", "usage": zeroUsage(), "stopReason": "pending",
+			"timestamp": time.Now().UnixMilli(),
+		})
+		if err != nil {
+			return nil
+		}
+		var out map[string]any
+		if json.Unmarshal(raw, &out) != nil {
+			return nil
+		}
+		return out
+	})
 
 	now := time.Now().UnixMilli()
 	user := map[string]any{"role": "user", "content": text, "timestamp": now}
@@ -344,6 +364,7 @@ func (h *Host) finishOpenCode(s *Session, state *ocPromptState, err error) {
 	if err != nil {
 		msg["errorMessage"] = err.Error()
 	}
+	s.clearLiveMessage()
 	s.appendMessage(msg)
 	h.event(s.ID, map[string]any{"type": "message_end", "message": msg})
 	h.event(s.ID, map[string]any{"type": "turn_end"})

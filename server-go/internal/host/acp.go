@@ -44,6 +44,26 @@ func (h *Host) runAcpPrompt(s *Session, text string) {
 	s.mu.Lock()
 	s.acpState = state
 	s.mu.Unlock()
+	s.setLiveMessage(func() map[string]any {
+		state.mu.Lock()
+		defer state.mu.Unlock()
+		if !state.started || len(state.content) == 0 {
+			return nil
+		}
+		raw, err := json.Marshal(map[string]any{
+			"role": "assistant", "content": state.content, "provider": "acp",
+			"model": "default", "usage": zeroUsage(), "stopReason": "pending",
+			"timestamp": time.Now().UnixMilli(),
+		})
+		if err != nil {
+			return nil
+		}
+		var out map[string]any
+		if json.Unmarshal(raw, &out) != nil {
+			return nil
+		}
+		return out
+	})
 
 	staticCtx, turnCtx := h.pluginContext(text, s)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Minute)
@@ -356,6 +376,7 @@ func (h *Host) finishAcp(s *Session, state *acpPromptState, err error) {
 	if err != nil {
 		msg["errorMessage"] = err.Error()
 	}
+	s.clearLiveMessage()
 	s.appendMessage(msg)
 	h.event(s.ID, map[string]any{"type": "message_end", "message": msg})
 	h.event(s.ID, map[string]any{"type": "turn_end"})

@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"prometheus-go/internal/mcpconfig"
@@ -115,10 +116,27 @@ func (h *Host) runCodexPrompt(s *Session, text string) {
 	var textBuf strings.Builder
 	content := []any{}
 	thinkingAt, textAt := -1, -1
+	var liveMu sync.Mutex
+	s.setLiveMessage(func() map[string]any {
+		liveMu.Lock()
+		defer liveMu.Unlock()
+		snap := cloneMap(assistant)
+		snap["content"] = content
+		raw, err := json.Marshal(snap)
+		if err != nil {
+			return nil
+		}
+		var out map[string]any
+		if json.Unmarshal(raw, &out) != nil {
+			return nil
+		}
+		return out
+	})
 	appendThinking := func(delta string) {
 		if delta == "" {
 			return
 		}
+		liveMu.Lock()
 		if thinkingAt < 0 {
 			content = append(content, map[string]any{"type": "thinking", "thinking": ""})
 			thinkingAt = len(content) - 1
@@ -126,12 +144,15 @@ func (h *Host) runCodexPrompt(s *Session, text string) {
 		}
 		block := content[thinkingAt].(map[string]any)
 		block["thinking"] = str(block["thinking"]) + delta
-		h.event(s.ID, map[string]any{"type": "message_update", "delta": map[string]any{"type": "thinking_delta", "contentIndex": thinkingAt, "delta": delta}})
+		idx := thinkingAt
+		liveMu.Unlock()
+		h.event(s.ID, map[string]any{"type": "message_update", "delta": map[string]any{"type": "thinking_delta", "contentIndex": idx, "delta": delta}})
 	}
 	appendText := func(delta string) {
 		if delta == "" {
 			return
 		}
+		liveMu.Lock()
 		if textAt < 0 {
 			content = append(content, map[string]any{"type": "text", "text": ""})
 			textAt = len(content) - 1
@@ -140,7 +161,9 @@ func (h *Host) runCodexPrompt(s *Session, text string) {
 		block := content[textAt].(map[string]any)
 		block["text"] = str(block["text"]) + delta
 		textBuf.WriteString(delta)
-		h.event(s.ID, map[string]any{"type": "message_update", "delta": map[string]any{"type": "text_delta", "contentIndex": textAt, "delta": delta}})
+		idx := textAt
+		liveMu.Unlock()
+		h.event(s.ID, map[string]any{"type": "message_update", "delta": map[string]any{"type": "text_delta", "contentIndex": idx, "delta": delta}})
 	}
 	var usage map[string]any
 	var runErr error
@@ -270,6 +293,7 @@ func (h *Host) runCodexPrompt(s *Session, text string) {
 	if runErr != nil {
 		final["errorMessage"] = runErr.Error()
 	}
+	s.clearLiveMessage()
 	s.appendMessage(final)
 	h.event(s.ID, map[string]any{"type": "message_end", "message": final})
 	h.event(s.ID, map[string]any{"type": "turn_end"})
