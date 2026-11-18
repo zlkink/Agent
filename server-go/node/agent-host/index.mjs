@@ -312,8 +312,12 @@ async function handle(msg) {
 
 function onPrompt(text, context, images = []) {
   if (busy) {
-    emit({ type: 'error', message: 'a prompt is already running' });
-    return;
+    // The host gave up on the previous turn (60-minute timeout, cancelled
+    // request) but the CLI never delivered a `result`, so its flag stayed set.
+    // Refusing every later prompt left the conversation unusable. Drop the
+    // stale query, resume the same native session and take this prompt.
+    restartQuery();
+    busy = false;
   }
   busy = true;
   turnContext = context || '';

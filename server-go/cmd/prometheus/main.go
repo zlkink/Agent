@@ -187,7 +187,7 @@ func main() {
 		pluginHost = flag.String("plugin-host", os.Getenv("PROMETHEUS_PLUGIN_URL"), "TypeScript plugin host URL (tools merged into the MCP bus)")
 		allowWrite = flag.Bool("allow-write", false, "give the sidecar Bash/Edit/Write tools (permission bridge still gates them)")
 		bootstrap  = flag.Bool("bootstrap", false, "install PI and build the bundled TypeScript plugin host")
-		timeout    = flag.Duration("timeout", 60*time.Minute, "prompt timeout")
+		timeout    = flag.Duration("timeout", 4*time.Hour, "prompt timeout")
 	)
 	flag.Parse()
 

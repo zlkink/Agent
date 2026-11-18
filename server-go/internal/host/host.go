@@ -46,6 +46,10 @@ import (
 
 const protocolVersion = 1
 
+// Long tool-driven tasks legitimately run for hours; only a truly stuck turn
+// should be cut off.
+const promptTimeout = 4 * time.Hour
+
 type Config struct {
 	Cwd          string
 	DataDir      string
@@ -1229,7 +1233,7 @@ func (h *Host) runPrompt(s *Session, text string, images ...[]any) {
 		return v
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), promptTimeout)
 	defer cancel()
 	err := sc.PromptWithImages(ctx, text, turnCtx, media, func(raw json.RawMessage) error {
 		var ev struct {
@@ -1315,6 +1319,14 @@ func (h *Host) runPrompt(s *Session, text string, images ...[]any) {
 
 	if resultText != "" && textBuf.Len() == 0 {
 		content = append(content, map[string]any{"type": "text", "text": resultText})
+	}
+	if err != nil {
+		// The sidecar may still consider its turn active; tell it to stop so the
+		// next prompt is not answered with "a prompt is already running".
+		_ = sc.Interrupt()
+		if errors.Is(err, context.DeadlineExceeded) {
+			err = errors.New("本轮运行超时，已自动中断；可以直接继续")
+		}
 	}
 	stop := "stop"
 	if err != nil {
@@ -1512,7 +1524,7 @@ func (h *Host) dispatch(method string, raw json.RawMessage) (any, error) {
 	switch method {
 	case "host.info":
 		return map[string]any{
-			"version": "0.30.41-ramicore", "piVersion": h.cfg.PIVersion, "protocol": protocolVersion,
+			"version": "0.30.42-ramicore", "piVersion": h.cfg.PIVersion, "protocol": protocolVersion,
 			"cwd": h.cfg.Cwd, "platform": runtime.GOOS,
 		}, nil
 
