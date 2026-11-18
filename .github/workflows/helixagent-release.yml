@@ -115,7 +115,6 @@ jobs:
         working-directory: server-go/desktop-shell
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           TARGET_ARG=()
           if [ -n "${{ matrix.target }}" ]; then TARGET_ARG=(--target "${{ matrix.target }}"); fi
