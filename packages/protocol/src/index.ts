@@ -116,18 +116,19 @@ export type SessionEvent =
 
 // ---------- Extension UI bridge (mirrors PI ExtensionUIContext) ----------
 
-export type UIRequest =
+export type UIRequest = { /** Set for assistant_ask */ question?: true; /** Epoch ms when the recommended option is used automatically. */ expiresAt?: number } & (
 	| { id: string; method: "select"; title: string; options: string[] }
 	/** Tool-permission or plan approval; answered with `{ value }` (see PermissionPrompt for the values). */
 	| ({ id: string; method: "permission" } & PermissionPrompt)
 	| { id: string; method: "confirm"; title: string; message: string }
-	| { id: string; method: "input"; title: string; placeholder?: string }
+	| { id: string; method: "input"; title: string; placeholder?: string; kind?: "question" }
 	| { id: string; method: "editor"; title: string; prefill?: string }
 	| { id: string; method: "notify"; message: string; level: "info" | "warning" | "error" }
 	| { id: string; method: "setStatus"; key: string; text?: string }
 	| { id: string; method: "setWidget"; key: string; lines?: string[]; placement?: "aboveEditor" | "belowEditor" }
 	| { id: string; method: "setTitle"; title: string }
-	| { id: string; method: "setEditorText"; text: string };
+	| { id: string; method: "setEditorText"; text: string }
+);
 
 export type UIResponse = { value: string } | { confirmed: boolean } | { cancelled: true };
 export const BLOCKING_UI_METHODS = new Set<UIRequest["method"]>(["select", "confirm", "input", "editor", "permission"]);
@@ -486,6 +487,10 @@ export interface HostSettings {
 	worktreeAutoPull?: boolean;
 	/** Chats idle for more than this many days are recycled out of the session list; 0 or unset keeps all. */
 	recycleDays?: number;
+	/** Automatic retries for transient provider errors (rate limit, 5xx, network); unset means 3, 0 disables. */
+	retryAttempts?: number;
+	/** Automatic continuations when a turn stops after tool calls without a final answer; unset means 0. */
+	autoContinue?: number;
 }
 
 // ---------- Subagents ----------

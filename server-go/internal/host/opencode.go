@@ -37,7 +37,7 @@ func (st *ocPromptState) finish(err error) {
 }
 
 func (h *Host) runOpenCodePrompt(s *Session, text string) {
-	c, sessionID, err := h.ensureOpenCode(s)
+	c, sessionID, fresh, err := h.ensureOpenCode(s)
 	if err != nil {
 		h.finishError(s, err)
 		return
@@ -75,10 +75,16 @@ func (h *Host) runOpenCodePrompt(s *Session, text string) {
 	h.event(s.ID, map[string]any{"type": "message_start", "message": user})
 
 	staticCtx, turnCtx := h.pluginContext(text, s)
-	ctx, cancel := context.WithTimeout(context.Background(), promptTimeout)
+	ctx, cancel := promptContext()
 	defer cancel()
+	promptText := text
+	if fresh {
+		if hist := h.historyContext(s, 16, 16000); hist != "" {
+			promptText = "此前对话：\n" + hist + "\n\n当前用户消息：\n" + text
+		}
+	}
 	body := map[string]any{
-		"parts": []any{map[string]any{"type": "text", "text": text}},
+		"parts": []any{map[string]any{"type": "text", "text": promptText}},
 		"agent": "build",
 	}
 	if staticCtx != "" || turnCtx != "" {
@@ -99,32 +105,32 @@ func (h *Host) runOpenCodePrompt(s *Session, text string) {
 	h.finishOpenCode(s, state, runErr)
 }
 
-func (h *Host) ensureOpenCode(s *Session) (*opencode.Client, string, error) {
+func (h *Host) ensureOpenCode(s *Session) (*opencode.Client, string, bool, error) {
 	s.mu.Lock()
 	c := s.ocClient
 	sessionID := s.ocSession
 	s.mu.Unlock()
 	if c != nil && sessionID != "" {
-		return c, sessionID, nil
+		return c, sessionID, false, nil
 	}
 	if h.cfg.OpenCodePath == "" {
-		return nil, "", fmt.Errorf("OpenCode is not installed")
+		return nil, "", false, fmt.Errorf("OpenCode is not installed")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	c, err := opencode.Start(ctx, h.cfg.OpenCodePath, s.Cwd)
 	if err != nil {
-		return nil, "", err
+		return nil, "", false, err
 	}
 	created, err := c.Request(ctx, "POST", "/session", s.Cwd, map[string]any{"title": s.Name})
 	if err != nil {
 		c.Close()
-		return nil, "", fmt.Errorf("opencode session: %w", err)
+		return nil, "", false, fmt.Errorf("opencode session: %w", err)
 	}
 	sessionID = str(created["id"])
 	if sessionID == "" {
 		c.Close()
-		return nil, "", fmt.Errorf("opencode returned no session id")
+		return nil, "", false, fmt.Errorf("opencode returned no session id")
 	}
 	if h.bus != nil {
 		url, token := h.bus.Open(s.ID, s.Cwd)
@@ -170,7 +176,7 @@ func (h *Host) ensureOpenCode(s *Session) (*opencode.Client, string, error) {
 			h.ocEvent(s, typ, props)
 		})
 	}()
-	return c, sessionID, nil
+	return c, sessionID, true, nil
 }
 
 func (h *Host) ocEvent(s *Session, typ string, p map[string]any) {
@@ -288,7 +294,7 @@ func (h *Host) ocText(s *Session, state *ocPromptState, delta string) {
 }
 
 func (h *Host) ocThinking(s *Session, state *ocPromptState, delta string) {
-	if delta == "" {
+	if !hasVisible(delta) {
 		return
 	}
 	h.ocStartMessage(s, state)

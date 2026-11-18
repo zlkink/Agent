@@ -284,7 +284,7 @@ func localToolDefinitions() []any {
 				"type": "object",
 				"properties": map[string]any{
 					"question": map[string]any{"type": "string", "description": "One clear question"},
-					"options":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Up to 6 short choices; the user may also type something else"},
+					"options":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Up to 6 short choices, best first; the user may also type something else. Without an answer for 5 minutes the first (recommended) choice is used."},
 				},
 				"required": []any{"question"},
 			},

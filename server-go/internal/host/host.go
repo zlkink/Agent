@@ -31,6 +31,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/gorilla/websocket"
 
@@ -48,7 +49,58 @@ const protocolVersion = 1
 
 // Long tool-driven tasks legitimately run for hours; only a truly stuck turn
 // should be cut off.
-const promptTimeout = 4 * time.Hour
+const promptTimeout = 0 // 0: wait indefinitely; the user can stop the turn with Esc
+
+// titleFromPrompt makes the short sidebar title a new chat gets from its first
+// message. It is deliberately local (no extra model call): first line, no
+// markdown/list prefix, collapsed whitespace and a 40-character cap.
+func titleFromPrompt(text string) string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return ""
+	}
+	if strings.HasPrefix(text, "<skill name=\"") {
+		if rest := text[len("<skill name=\""):]; rest != "" {
+			if end := strings.IndexByte(rest, '"'); end > 0 {
+				return rest[:end]
+			}
+		}
+	}
+	if i := strings.IndexByte(text, '\n'); i >= 0 {
+		text = text[:i]
+	}
+	text = strings.TrimSpace(strings.TrimLeft(text, "#*-•> "))
+	text = strings.Join(strings.Fields(text), " ")
+	text = strings.TrimRight(text, "。．.!！?？;；:：,，")
+	runes := []rune(text)
+	if len(runes) > 40 {
+		text = string(runes[:40]) + "…"
+	}
+	return text
+}
+
+// promptContext is the lifetime of one agent turn. By default there is no
+// deadline: a slow model may think for a long time, and the user can always
+// stop it manually. A positive promptTimeout restores the old behaviour.
+func promptContext() (context.Context, context.CancelFunc) {
+	if promptTimeout > 0 {
+		return context.WithTimeout(context.Background(), promptTimeout)
+	}
+	return context.WithCancel(context.Background())
+}
+
+// hasVisible reports whether s contains anything besides whitespace and the
+// zero-width characters some models emit as "thinking" between tool calls.
+// Without this, every tool round produced a 1-character 思考过程 block.
+func hasVisible(s string) bool {
+	for _, r := range s {
+		if unicode.IsSpace(r) || r == 0x00a0 || r == 0x200b || r == 0x200c || r == 0x200d || r == 0x2060 || r == 0xfeff {
+			continue
+		}
+		return true
+	}
+	return false
+}
 
 type Config struct {
 	Cwd          string
@@ -73,7 +125,7 @@ type Config struct {
 	Token        string
 	AllowWrite   bool
 	Offline      bool
-	StartSidecar func(sessionID, cwd, mcpURL, mcpToken, staticContext string) (*sidecar.Client, error)
+	StartSidecar func(sessionID, cwd, mcpURL, mcpToken, staticContext, resume string) (*sidecar.Client, error)
 }
 
 type Host struct {
@@ -90,6 +142,7 @@ type Host struct {
 	tickets     map[string]downloadTicket
 	permPending map[string]chan bool
 	uiPending   map[string]chan map[string]any
+	uiRequests  map[string]pendingUIRequest
 	kbBases     []map[string]any
 	kbDocs      map[string][]map[string]any
 	agents      []map[string]any
@@ -123,6 +176,7 @@ type Session struct {
 	Runtime        string
 	Provider       string
 	ModelID        string
+	nativeID       string
 	Created        time.Time
 	Modified       time.Time
 	Archived       bool
@@ -148,8 +202,17 @@ type Session struct {
 	contextWindow int
 	steerQueue    []queuedPrompt
 	followUps     []queuedPrompt
-	compacting    bool
-	lastCompact   time.Time
+	// autoContinueLeft is the budget for "empty turn" continuations, reset on
+	// each user prompt. continuation is started by endRun before the queues.
+	autoContinueLeft int
+	continuation     *queuedPrompt
+	compacting       bool
+	lastCompact      time.Time
+}
+
+type pendingUIRequest struct {
+	SessionID string
+	Request   map[string]any
 }
 
 type queuedPrompt struct {
@@ -177,6 +240,7 @@ func New(cfg Config) *Host {
 		tickets:     map[string]downloadTicket{},
 		permPending: map[string]chan bool{},
 		uiPending:   map[string]chan map[string]any{},
+		uiRequests:  map[string]pendingUIRequest{},
 		kbDocs:      map[string][]map[string]any{},
 		network:     map[string]any{"lan": false, "port": 9528, "allowedHosts": []any{}},
 	}
@@ -221,17 +285,40 @@ func New(cfg Config) *Host {
 			if runtimeID == "" {
 				runtimeID = "claude-code"
 			}
+			messages := rec.Messages
+			// A turn was cut off by a hard kill: keep what the model had
+			// produced instead of showing only the user's prompt.
+			if rec.LiveMessage != nil {
+				live := cloneMap(rec.LiveMessage)
+				live["stopReason"] = "aborted"
+				live["errorMessage"] = "上次运行被中断，已保留部分回复"
+				if blocks, ok := live["content"].([]any); ok && len(blocks) > 0 {
+					messages = append(append([]map[string]any(nil), messages...), live)
+				}
+			}
 			s := &Session{
 				ID: rec.ID, Cwd: rec.Cwd, Name: rec.Name, Runtime: runtimeID,
 				Created: rec.Created, Modified: rec.Modified,
 				Archived: rec.Archived, PermissionMode: mode,
-				Provider: rec.Provider, ModelID: rec.Model,
-				messages: rec.Messages,
+				Provider: rec.Provider, ModelID: rec.Model, nativeID: rec.AgentSessionID,
+				messages: messages,
 				usage: usageTotals{
 					Input: rec.InputTokens, Output: rec.OutputTokens, Reasoning: rec.ReasoningTokens,
 					CacheRead: rec.CacheRead, CacheWrite: rec.CacheWrite,
 				},
 				worktree: rec.Worktree,
+			}
+			// Chats created before automatic titles existed still say "New chat";
+			// derive their title from the first user message once.
+			if s.Name == "" || s.Name == "New chat" {
+				for _, m := range messages {
+					if str(m["role"]) == "user" {
+						if name := titleFromPrompt(messageText(m["content"])); name != "" {
+							s.Name = name
+						}
+						break
+					}
+				}
 			}
 			h.sessions[s.ID] = s
 			h.order = append(h.order, s.ID)
@@ -244,6 +331,7 @@ func New(cfg Config) *Host {
 	} else {
 		h.persist()
 	}
+	go h.livePersistLoop()
 	return h
 }
 
@@ -256,15 +344,22 @@ func (h *Host) persist() {
 	st := &store.State{Version: 1}
 	h.mu.Lock()
 	st.Settings = cloneMap(h.settings)
-	for _, id := range h.order {
-		s := h.sessions[id]
-		if s == nil {
-			continue
+	order := append([]string(nil), h.order...)
+	sessions := make([]*Session, 0, len(order))
+	for _, id := range order {
+		if s := h.sessions[id]; s != nil {
+			sessions = append(sessions, s)
 		}
+	}
+	st.Workspaces = append([]map[string]any(nil), h.workspaces...)
+	h.mu.Unlock()
+	for _, s := range sessions {
 		s.mu.Lock()
 		msgs := make([]map[string]any, len(s.messages))
 		copy(msgs, s.messages)
-		st.Sessions = append(st.Sessions, store.Session{
+		liveFn := s.liveMessage
+		streaming := s.Streaming
+		rec := store.Session{
 			ID: s.ID, Cwd: s.Cwd, Name: s.Name, Runtime: s.Runtime,
 			Created: s.Created, Modified: s.Modified, Archived: s.Archived,
 			PermissionMode: s.PermissionMode,
@@ -273,12 +368,46 @@ func (h *Host) persist() {
 			CacheRead: s.usage.CacheRead, CacheWrite: s.usage.CacheWrite,
 			Worktree: s.worktree,
 			Messages: msgs,
-		})
+		}
 		s.mu.Unlock()
+		// Building the live message locks the runtime state, never s.mu: doing it
+		// while holding a lock the event path takes would deadlock.
+		if streaming && liveFn != nil {
+			rec.LiveMessage = liveFn()
+		}
+		st.Sessions = append(st.Sessions, rec)
 	}
-	st.Workspaces = append([]map[string]any(nil), h.workspaces...)
-	h.mu.Unlock()
 	_ = h.store.Save(st)
+}
+
+// livePersistLoop saves in-flight assistant content every few seconds so a
+// hard kill (or a forced steer that restarts the runtime) keeps the partial
+// reply instead of losing the whole turn.
+func (h *Host) livePersistLoop() {
+	t := time.NewTicker(5 * time.Second)
+	defer t.Stop()
+	for range t.C {
+		h.mu.Lock()
+		sessions := make([]*Session, 0, len(h.sessions))
+		for _, s := range h.sessions {
+			sessions = append(sessions, s)
+		}
+		h.mu.Unlock()
+		active := false
+		for _, s := range sessions {
+			s.mu.Lock()
+			if s.Streaming && s.liveMessage != nil {
+				active = true
+			}
+			s.mu.Unlock()
+			if active {
+				break
+			}
+		}
+		if active {
+			h.persist()
+		}
+	}
 }
 
 // SetLocalPort lets /network.get report the real local listener port.
@@ -425,6 +554,24 @@ func (h *Host) checkNetworkSession(token string) bool {
 // CheckNetworkSession is the HTTP side of the LAN session check.
 func (h *Host) CheckNetworkSession(token string) bool {
 	return h.checkNetworkSession(token)
+}
+
+// settingInt reads a persisted chat setting with a default and bounds.
+func (h *Host) settingInt(key string, def, min, max int) int {
+	h.mu.Lock()
+	v, ok := h.settings[key]
+	h.mu.Unlock()
+	if !ok {
+		return def
+	}
+	n := int(number(v))
+	if n < min {
+		return min
+	}
+	if n > max {
+		return max
+	}
+	return n
 }
 
 func (h *Host) hasNetworkPassword() bool {
@@ -834,7 +981,7 @@ func (h *Host) snapshot(s *Session) map[string]any {
 		"permissionMode":          mode,
 		"isStreaming":             streaming,
 		"queue":                   map[string]any{"steering": steering, "followUp": followUp},
-		"pendingUI":               []any{},
+		"pendingUI":               h.pendingUIFor(s.ID),
 		"statuses":                map[string]any{},
 		"widgets":                 map[string]any{},
 		"subagents":               []any{},
@@ -908,7 +1055,11 @@ func (h *Host) endRun(s *Session) {
 	s.liveMessage = nil
 	s.Modified = time.Now()
 	var next *queuedPrompt
-	if len(s.steerQueue) > 0 {
+	if s.continuation != nil {
+		q := *s.continuation
+		s.continuation = nil
+		next = &q
+	} else if len(s.steerQueue) > 0 {
 		q := s.steerQueue[0]
 		s.steerQueue = s.steerQueue[1:]
 		next = &q
@@ -1047,7 +1198,18 @@ func (h *Host) runPrompt(s *Session, text string, images ...[]any) {
 			mcpURL, mcpToken = h.bus.Open(s.ID, s.Cwd)
 		}
 		var err error
-		sc, err = h.cfg.StartSidecar(s.ID, s.Cwd, mcpURL, mcpToken, staticCtx)
+		s.mu.Lock()
+		resume := s.nativeID
+		s.mu.Unlock()
+		if resume == "" {
+			// Older chats have no native session id (or Claude cleaned it up):
+			// give the fresh sidecar the recent transcript instead of starting
+			// from nothing.
+			if hist := h.historyContext(s, 24, 24000); hist != "" {
+				staticCtx = "这是本会话此前的对话内容，请延续上下文：\n" + hist + "\n\n" + staticCtx
+			}
+		}
+		sc, err = h.cfg.StartSidecar(s.ID, s.Cwd, mcpURL, mcpToken, staticCtx, resume)
 		if err != nil {
 			if h.bus != nil {
 				h.bus.CloseSession(s.ID)
@@ -1142,7 +1304,7 @@ func (h *Host) runPrompt(s *Session, text string, images ...[]any) {
 		return v
 	}
 	appendThinking := func(delta string) {
-		if delta == "" {
+		if !hasVisible(delta) {
 			return
 		}
 		liveMu.Lock()
@@ -1233,27 +1395,34 @@ func (h *Host) runPrompt(s *Session, text string, images ...[]any) {
 		return v
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), promptTimeout)
+	ctx, cancel := promptContext()
 	defer cancel()
-	err := sc.PromptWithImages(ctx, text, turnCtx, media, func(raw json.RawMessage) error {
+	handle := func(raw json.RawMessage) error {
 		var ev struct {
-			Type    string          `json:"type"`
-			Text    string          `json:"text"`
-			Name    string          `json:"name"`
-			Tool    string          `json:"tool"`
-			ID      string          `json:"id"`
-			Message string          `json:"message"`
-			Result  json.RawMessage `json:"result"`
-			IsError bool            `json:"isError"`
-			Usage   json.RawMessage `json:"usage"`
-			Input   json.RawMessage `json:"input"`
-			Tokens  int             `json:"tokens"`
-			Max     int             `json:"max"`
+			Type      string          `json:"type"`
+			Text      string          `json:"text"`
+			Name      string          `json:"name"`
+			Tool      string          `json:"tool"`
+			ID        string          `json:"id"`
+			Message   string          `json:"message"`
+			Result    json.RawMessage `json:"result"`
+			IsError   bool            `json:"isError"`
+			Usage     json.RawMessage `json:"usage"`
+			Input     json.RawMessage `json:"input"`
+			Tokens    int             `json:"tokens"`
+			Max       int             `json:"max"`
+			SessionID string          `json:"sessionId"`
 		}
 		if json.Unmarshal(raw, &ev) != nil {
 			return nil
 		}
 		switch ev.Type {
+		case "init":
+			if ev.SessionID != "" {
+				s.mu.Lock()
+				s.nativeID = ev.SessionID
+				s.mu.Unlock()
+			}
 		case "thinking_delta":
 			appendThinking(ev.Text)
 		case "text_delta":
@@ -1315,7 +1484,14 @@ func (h *Host) runPrompt(s *Session, text string, images ...[]any) {
 			return errors.New(ev.Message)
 		}
 		return nil
-	})
+	}
+
+	hasOutput := func() bool {
+		liveMu.Lock()
+		defer liveMu.Unlock()
+		return len(content) > 0
+	}
+	err := h.promptWithRetry(ctx, s, sc, text, turnCtx, media, handle, hasOutput)
 
 	if resultText != "" && textBuf.Len() == 0 {
 		content = append(content, map[string]any{"type": "text", "text": resultText})
@@ -1346,6 +1522,17 @@ func (h *Host) runPrompt(s *Session, text string, images ...[]any) {
 	h.event(s.ID, map[string]any{"type": "turn_end"})
 	h.event(s.ID, map[string]any{"type": "agent_settled", "aborted": false})
 
+	// A turn that ends after tools with only a progress line is not an answer.
+	// Queue one continuation before the user's queued prompts.
+	if err == nil && needsContinuation(content) {
+		s.mu.Lock()
+		if s.autoContinueLeft > 0 {
+			s.autoContinueLeft--
+			s.continuation = &queuedPrompt{Text: autoContinuePrompt}
+		}
+		s.mu.Unlock()
+	}
+
 	s.mu.Lock()
 	s.usage.Input += number(usage["input_tokens"])
 	s.usage.Output += number(usage["output_tokens"])
@@ -1355,6 +1542,96 @@ func (h *Host) runPrompt(s *Session, text string, images ...[]any) {
 	s.mu.Unlock()
 	h.endRun(s)
 }
+
+// promptWithRetry runs one user prompt, retrying only transient provider
+// failures and only before the model produced any content. Retries are shown
+// in the chat through auto_retry_start/end so the wait is not mistaken for a
+// hang. Settings → Chat controls the attempt count.
+func (h *Host) promptWithRetry(ctx context.Context, s *Session, sc *sidecar.Client, text, turnCtx string, media []any, handle func(json.RawMessage) error, hasOutput func() bool) error {
+	attempts := h.settingInt("retryAttempts", 3, 0, 10)
+	err := sc.PromptWithImages(ctx, text, turnCtx, media, handle)
+	for attempt := 1; err != nil && attempt <= attempts && ctx.Err() == nil && !hasOutput() && retryableProviderError(err); attempt++ {
+		delay := time.Duration(1<<uint(attempt-1)) * time.Second
+		if delay > 30*time.Second {
+			delay = 30 * time.Second
+		}
+		h.event(s.ID, map[string]any{
+			"type": "auto_retry_start", "delayMs": delay.Milliseconds(),
+			"attempt": attempt, "maxAttempts": attempts, "errorMessage": err.Error(),
+		})
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			h.event(s.ID, map[string]any{"type": "auto_retry_end", "success": false, "finalError": ctx.Err().Error()})
+			return ctx.Err()
+		case <-timer.C:
+		}
+		_ = sc.Interrupt()
+		time.Sleep(150 * time.Millisecond)
+		sc.Drain()
+		err = sc.PromptWithImages(ctx, text, turnCtx, media, handle)
+		finalError := ""
+		if err != nil {
+			finalError = err.Error()
+		}
+		h.event(s.ID, map[string]any{"type": "auto_retry_end", "success": err == nil, "finalError": finalError})
+	}
+	return err
+}
+
+// retryableProviderError matches the failures worth retrying. Authentication,
+// bad requests and model errors are not here: repeating them only wastes time.
+func retryableProviderError(err error) bool {
+	msg := strings.ToLower(err.Error())
+	for _, needle := range []string{
+		"rate limit", "rate_limit", "too many requests", "429",
+		"overloaded", "529", "500", "502", "503", "504",
+		"server error", "internal server error", "bad gateway", "service unavailable",
+		"timed out", "timeout", "connection reset", "connection refused",
+		"connection closed", "network error", "network is unreachable",
+		"temporarily unavailable", "try again", "econnreset", "econnrefused",
+		"socket hang up", "stream ended", "unexpected end",
+	} {
+		if strings.Contains(msg, needle) {
+			return true
+		}
+	}
+	return false
+}
+
+// needsContinuation spots a turn that stopped after tool calls without a real
+// answer (the last block is a tool call, or only a short "let me check" line).
+func needsContinuation(content []any) bool {
+	if len(content) == 0 {
+		return true
+	}
+	last, _ := content[len(content)-1].(map[string]any)
+	if last == nil {
+		return false
+	}
+	switch str(last["type"]) {
+	case "toolCall":
+		return true
+	case "text":
+		text := strings.TrimSpace(str(last["text"]))
+		if text == "" {
+			return true
+		}
+		if len([]rune(text)) > 160 {
+			return false
+		}
+		lower := strings.ToLower(text)
+		for _, prefix := range []string{"我先", "我会", "我将", "继续", "接下来", "现在", "让我", "下一步", "i'll", "i will", "let me", "next", "first,"} {
+			if strings.HasPrefix(lower, prefix) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+const autoContinuePrompt = "（自动续跑）请基于已有结果直接回答用户，不要重复计划或再次确认；如果还有必须执行的操作，先完成再回答。"
 
 // handlePermission resolves one sidecar permission_request according to the
 // session's permission mode, asking the UI when the mode requires it.
@@ -1374,6 +1651,20 @@ func (h *Host) handlePermission(s *Session, sc *sidecar.Client, id, tool string,
 
 // askQuestion asks the user directly in the chat. Unlike the assistant plugin's
 // delegated-run restriction, this works in any open conversation.
+// pendingUIFor returns the dialogs a session is still waiting on, so opening
+// or reconnecting to it shows them instead of leaving the agent blocked.
+func (h *Host) pendingUIFor(sessionID string) []any {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	out := []any{}
+	for _, p := range h.uiRequests {
+		if p.SessionID == sessionID {
+			out = append(out, p.Request)
+		}
+	}
+	return out
+}
+
 func (h *Host) askQuestion(ctx context.Context, sessionID, cwd, question string, options []string) (string, error) {
 	s := h.session(sessionID)
 	if s == nil {
@@ -1387,27 +1678,42 @@ func (h *Host) askQuestion(ctx context.Context, sessionID, cwd, question string,
 	h.mu.Lock()
 	h.uiPending[requestID] = ch
 	h.mu.Unlock()
-	req := map[string]any{"id": requestID, "method": "input", "title": question, "placeholder": ""}
+	deadline := time.Now().Add(5 * time.Minute)
+	req := map[string]any{"id": requestID, "method": "input", "title": question, "placeholder": "", "question": true, "expiresAt": deadline.UnixMilli()}
 	if len(options) > 0 {
 		req["method"] = "select"
 		req["options"] = options
 	}
-	h.sendFrame(sessionID, map[string]any{"type": "ui.request", "sessionId": sessionID, "request": req})
+	h.mu.Lock()
+	h.uiRequests[requestID] = pendingUIRequest{SessionID: sessionID, Request: req}
+	h.mu.Unlock()
+	// A question must be seen even when this chat is in the background: send it
+	// to every connected client instead of only this session's subscribers.
+	h.broadcast(map[string]any{"type": "ui.request", "sessionId": sessionID, "request": req})
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	timer := time.NewTimer(30 * time.Minute)
+	timer := time.NewTimer(time.Until(deadline))
 	defer timer.Stop()
 	select {
 	case <-ctx.Done():
 		h.mu.Lock()
 		delete(h.uiPending, requestID)
+		delete(h.uiRequests, requestID)
 		h.mu.Unlock()
+		h.broadcast(map[string]any{"type": "ui.resolved", "sessionId": sessionID, "requestId": requestID})
 		return "", ctx.Err()
 	case <-timer.C:
 		h.mu.Lock()
 		delete(h.uiPending, requestID)
+		delete(h.uiRequests, requestID)
 		h.mu.Unlock()
+		h.broadcast(map[string]any{"type": "ui.resolved", "sessionId": sessionID, "requestId": requestID})
+		// No answer after five minutes: take the recommended option (the first
+		// one, by convention) so the agent can continue instead of hanging.
+		if len(options) > 0 {
+			return options[0], nil
+		}
 		return "", fmt.Errorf("the user did not answer in time; decide yourself and say what you assumed")
 	case resp := <-ch:
 		if cancelled, _ := resp["cancelled"].(bool); cancelled {
@@ -1435,19 +1741,21 @@ func (h *Host) askUI(s *Session, tool string, input json.RawMessage) bool {
 			detail = detail[:2000]
 		}
 	}
-	h.sendFrame(s.ID, map[string]any{
-		"type": "ui.request", "sessionId": s.ID,
-		"request": map[string]any{
-			"id": requestID, "method": "permission", "kind": "tool",
-			"toolName": tool, "summary": "Allow " + tool + "?", "detail": detail,
-		},
-	})
+	req := map[string]any{
+		"id": requestID, "method": "permission", "kind": "tool",
+		"toolName": tool, "summary": "Allow " + tool + "?", "detail": detail,
+	}
+	h.mu.Lock()
+	h.uiRequests[requestID] = pendingUIRequest{SessionID: s.ID, Request: req}
+	h.mu.Unlock()
+	h.broadcast(map[string]any{"type": "ui.request", "sessionId": s.ID, "request": req})
 	select {
 	case allow := <-ch:
 		return allow
 	case <-time.After(120 * time.Second):
 		h.mu.Lock()
 		delete(h.permPending, requestID)
+		delete(h.uiRequests, requestID)
 		h.mu.Unlock()
 		return false
 	}
@@ -1875,8 +2183,28 @@ func (h *Host) dispatch(method string, raw json.RawMessage) (any, error) {
 			return nil, fmt.Errorf("empty prompt")
 		}
 		delivery := str(p["delivery"])
+		budget := h.settingInt("autoContinue", 0, 0, 3)
 		s.mu.Lock()
 		busy := s.Streaming
+		renamed := false
+		renamedName := ""
+		if !busy {
+			s.autoContinueLeft = budget
+			if name := titleFromPrompt(text); name != "" && (s.Name == "" || s.Name == "New chat") {
+				first := true
+				for _, m := range s.messages {
+					if str(m["role"]) == "user" {
+						first = false
+						break
+					}
+				}
+				if first {
+					s.Name = name
+					renamedName = name
+					renamed = true
+				}
+			}
+		}
 		if busy {
 			q := queuedPrompt{Text: text, Images: images}
 			if delivery == "steer" {
@@ -1886,6 +2214,9 @@ func (h *Host) dispatch(method string, raw json.RawMessage) (any, error) {
 			}
 		}
 		s.mu.Unlock()
+		if renamed {
+			h.event(s.ID, map[string]any{"type": "session_info_changed", "name": renamedName})
+		}
 		if busy {
 			h.emitQueue(s)
 			if delivery == "steer" {
@@ -2021,6 +2352,7 @@ func (h *Host) dispatch(method string, raw json.RawMessage) (any, error) {
 			return nil, fmt.Errorf("上一条回复还在运行，请先停止或稍后再试")
 		}
 		s.messages = s.messages[:idx]
+		s.autoContinueLeft = h.settingInt("autoContinue", 0, 0, 3)
 		s.mu.Unlock()
 		go h.runPrompt(s, text)
 		return nil, nil
@@ -2790,6 +3122,7 @@ func (h *Host) dispatch(method string, raw json.RawMessage) (any, error) {
 		uiCh := h.uiPending[rid]
 		delete(h.permPending, rid)
 		delete(h.uiPending, rid)
+		delete(h.uiRequests, rid)
 		h.mu.Unlock()
 		if permCh != nil {
 			v := str(resp["value"])
@@ -2806,7 +3139,7 @@ func (h *Host) dispatch(method string, raw json.RawMessage) (any, error) {
 			default:
 			}
 		}
-		h.sendFrame(sid, map[string]any{"type": "ui.resolved", "sessionId": sid, "requestId": rid})
+		h.broadcast(map[string]any{"type": "ui.resolved", "sessionId": sid, "requestId": rid})
 		return nil, nil
 
 	case "fs.dirs":
@@ -4394,4 +4727,43 @@ func toAny(list []map[string]any) []any {
 		out[i] = v
 	}
 	return out
+}
+
+// historyContext renders the recent text of a conversation for runtimes that
+// start without a native session (for example after an app restart, or every
+// Codex turn). Tool traffic and huge outputs are omitted.
+func (h *Host) historyContext(s *Session, maxMessages, maxChars int) string {
+	s.mu.Lock()
+	msgs := append([]map[string]any(nil), s.messages...)
+	s.mu.Unlock()
+	start := len(msgs) - maxMessages
+	if start < 0 {
+		start = 0
+	}
+	var b strings.Builder
+	for _, m := range msgs[start:] {
+		role := str(m["role"])
+		if role != "user" && role != "assistant" {
+			continue
+		}
+		text := strings.TrimSpace(messageText(m["content"]))
+		if text == "" {
+			continue
+		}
+		if r := []rune(text); len(r) > 1500 {
+			text = string(r[:1500]) + "…"
+		}
+		b.WriteString(role)
+		b.WriteString(": ")
+		b.WriteString(text)
+		b.WriteString("\n")
+		if b.Len() >= maxChars {
+			break
+		}
+	}
+	out := b.String()
+	if len(out) > maxChars {
+		out = out[:maxChars]
+	}
+	return strings.TrimSpace(out)
 }

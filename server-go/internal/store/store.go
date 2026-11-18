@@ -29,6 +29,11 @@ type Session struct {
 	CacheWrite      int              `json:"cacheWrite,omitempty"`
 	Worktree        map[string]any   `json:"worktree,omitempty"`
 	Messages        []map[string]any `json:"messages"`
+	// AgentSessionID is the native CLI session used to resume the model's context after a restart.
+	AgentSessionID string `json:"agentSessionId,omitempty"`
+	// In-flight assistant reply saved while the turn is still running. A hard
+	// kill keeps it; it is folded into Messages when the state is loaded.
+	LiveMessage map[string]any `json:"liveMessage,omitempty"`
 }
 
 type State struct {

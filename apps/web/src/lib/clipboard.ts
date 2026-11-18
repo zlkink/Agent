@@ -1,5 +1,9 @@
 /** Copy text; falls back to execCommand when the async Clipboard API is unavailable (insecure context, Android WebView). */
 export async function copyToClipboard(text: string): Promise<void> {
+	// Message text often ends with blank lines (and zero-width characters some
+	// models stream). Pasting it elsewhere then adds an empty paragraph; strip
+	// those at the boundary, keep everything inside the message intact.
+	text = text.replace(/\r\n/g, "\n").replace(new RegExp("[\\u200B-\\u200D\\uFEFF]", "g"), "").trimEnd();
 	if (typeof navigator !== "undefined" && navigator.clipboard && window.isSecureContext) {
 		try {
 			await navigator.clipboard.writeText(text);

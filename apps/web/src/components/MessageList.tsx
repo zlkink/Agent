@@ -240,6 +240,13 @@ function argSummary(name: string, args: Record<string, unknown> | undefined): st
 	return raw.length > 90 ? `${raw.slice(0, 90)}…` : raw;
 }
 
+// Some models stream zero-width spaces as "thinking" between tool calls. They
+// are invisible but would otherwise show up as a 1-character 思考过程 block.
+const INVISIBLE = new RegExp("[\\s\\u200B-\\u200D\\u2060\\uFEFF]", "g");
+function visibleLen(text: string): number {
+	return text.replace(INVISIBLE, "").length;
+}
+
 function ThinkingBlock({ text, live }: { text: string; live: boolean }) {
 	const t = useT(M);
 	const [open, setOpen] = useState(false);
@@ -248,12 +255,13 @@ function ThinkingBlock({ text, live }: { text: string; live: boolean }) {
 	useEffect(() => {
 		if (live && open && body.current) body.current.scrollTop = body.current.scrollHeight;
 	}, [text, live, open]);
+	const chars = visibleLen(text);
 	return (
 		<div>
 			<button type="button" onClick={() => setOpen(!open)} className="flex w-full items-center gap-2 rounded-lg px-1 py-1.5 text-xs text-ink-400 transition-colors hover:bg-ink-900/60 hover:text-ink-200">
 				<Brain className={clsx("size-3.5", live && "animate-pulse text-ember-300")} />
 				<span>{live ? t("thinkingLive") : t("thinking")}</span>
-				<span className="font-mono text-[11px] text-ink-600">{t("chars", { n: text.length })}</span>
+				<span className="font-mono text-[11px] text-ink-600">{t("chars", { n: chars })}</span>
 				<ChevronRight className={clsx("ml-auto size-3.5 text-ink-600 transition-transform", open && "rotate-90")} />
 			</button>
 			<Collapse open={open}>
@@ -387,7 +395,7 @@ function AssistantBlock({
 				if (!block) return null;
 				if (mode === "steps" && i === finalAt) return null;
 				if (mode === "final" && i !== finalAt) return null;
-				if (block.type === "thinking") return block.thinking.trim() ? <ThinkingBlock key={i} text={block.thinking} live={live && i === last} /> : null;
+				if (block.type === "thinking") return visibleLen(block.thinking) > 0 ? <ThinkingBlock key={i} text={block.thinking} live={live && i === last} /> : null;
 				if (block.type === "toolCall") {
 					const card = <ToolCard key={block.id || i} call={block} run={tools[block.id]} result={results.get(block.id)} live={live} />;
 					if (block.name === "subagent") return <SubagentCard key={block.id || i} callId={block.id} fallback={card} />;
@@ -471,7 +479,7 @@ function TurnStats({ group, sessionId }: { group: { message: AssistantMessage; i
 		...(ttft != null ? [t("statTtft", { v: ttft < 1000 ? `${Math.round(ttft)} ms` : `${(ttft / 1000).toFixed(1)} s` })] : []),
 	];
 	return (
-		<div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-[10.5px] text-ink-500" title={t("statTitle")}>
+		<div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-[10.5px] text-ink-500 select-none" title={t("statTitle")}>
 			{parts.map((p) => (
 				<span key={p}>{p}</span>
 			))}

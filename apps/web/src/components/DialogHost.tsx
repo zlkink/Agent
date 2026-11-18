@@ -27,6 +27,8 @@ const M = defineMessages({
 		planAcceptEdits: "批准并自动编辑",
 		planDefault: "批准，逐项确认",
 		planKeep: "继续规划",
+		customAnswer: "以上都不合适？直接输入回答",
+		customPlaceholder: "输入你的回答…",
 	},
 	en: {
 		request: "Extension request",
@@ -47,12 +49,14 @@ const M = defineMessages({
 		planAcceptEdits: "Approve, auto-accept edits",
 		planDefault: "Approve, ask for each action",
 		planKeep: "Keep planning",
+		customAnswer: "None of these? Type your answer",
+		customPlaceholder: "Type your answer…",
 	},
 });
 
 /** Renders blocking extension UI requests (select / confirm / input / editor / permission) as modal dialogs. */
 export function DialogHost() {
-	const head = useStore((s) => s.uiQueue[0]);
+	const head = useStore((s) => s.uiQueue.find((q) => !q.request.question));
 	if (!head) return null;
 	if (head.request.method === "permission") return <PermissionDialog key={head.request.id} sessionId={head.sessionId} id={head.request.id} prompt={head.request} />;
 	return <Dialog key={head.request.id} sessionId={head.sessionId} request={head.request} />;
@@ -207,11 +211,29 @@ function Dialog({ sessionId, request }: { sessionId: string; request: UIRequest 
 				)}
 
 				{request.method === "select" && (
-					<div className="mt-4 flex justify-end">
-						<Button variant="ghost" onClick={cancel}>
-							{t("cancel")}
-						</Button>
-					</div>
+					<>
+						<form
+							className="mt-4 space-y-2"
+							onSubmit={(e) => {
+								e.preventDefault();
+								const answer = value.trim();
+								if (answer) void respondUI(sessionId, request.id, { value: answer });
+							}}
+						>
+							<div className="text-xs text-ink-500">{t("customAnswer")}</div>
+							<div className="flex gap-2">
+								<Input value={value} placeholder={t("customPlaceholder")} onChange={(e) => setValue(e.target.value)} />
+								<Button type="submit" variant="primary" disabled={!value.trim()}>
+									{t("submit")}
+								</Button>
+							</div>
+						</form>
+						<div className="mt-4 flex justify-end">
+							<Button variant="ghost" onClick={cancel}>
+								{t("cancel")}
+							</Button>
+						</div>
+					</>
 				)}
 			</div>
 		</div>

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -70,7 +71,7 @@ func (h *Host) runClaudeSubagent(cwd string, writable bool, task string) (string
 		"--verbose", "--no-session-persistence", "--disable-slash-commands",
 		"--permission-mode", mode, "--tools", tools, "--allowedTools", tools,
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, h.cfg.Claude.Path, args...)
 	cmd.Dir = cwd
@@ -152,11 +153,22 @@ func (h *Host) runCodexSubagent(cwd string, writable bool, task string) (string,
 	if writable {
 		sandbox = "workspace-write"
 	}
+	if runtime.GOOS == "windows" {
+		// Codex's Windows restricted-token sandbox currently fails with
+		// "CreateRestrictedToken failed: 87" on some machines, which silently
+		// leaves the model without tools and makes it hallucinate its context.
+		// The bypass keeps commands working; a read-only run is then enforced by
+		// the explicit instruction below (it is advisory, not a kernel sandbox).
+		sandbox = "danger-full-access"
+		if !writable {
+			task = "只读任务：只允许读取、搜索和执行只读命令；绝对不要修改、创建或删除任何文件。\n\n" + task
+		}
+	}
 	args := []string{
 		"exec", "--json", "--color", "never", "--skip-git-repo-check", "--ephemeral",
 		"-C", cwd, "-s", sandbox, "-c", `approval_policy="never"`,
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, h.cfg.Codex.Path, args...)
 	cmd.Dir = cwd
@@ -211,6 +223,9 @@ func (h *Host) runCodexSubagent(cwd string, writable bool, task string) (string,
 	waitErr := cmd.Wait()
 	if runErr == nil && waitErr != nil {
 		runErr = fmt.Errorf("%s", firstNonEmpty(lastLine(errText.String()), waitErr.Error()))
+	}
+	if runErr == nil && strings.Contains(errText.String(), "CreateRestrictedToken") {
+		return "", fmt.Errorf("Codex 的 Windows 沙箱启动失败（CreateRestrictedToken failed），该子代理没有可用的工具环境")
 	}
 	if runErr != nil {
 		return "", runErr

@@ -657,7 +657,7 @@ export function Composer({ newChat = false }: { newChat?: boolean }) {
 		}
 		const attached = images;
 		const attachedDocs = docs;
-		rememberInput(value);
+		rememberInput(draftKey, value);
 		history.current = { at: -1, draft: "" };
 		setText("");
 		setImages([]);
@@ -789,11 +789,11 @@ export function Composer({ newChat = false }: { newChat?: boolean }) {
 		}
 		if ((e.key === "ArrowUp" || e.key === "ArrowDown") && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && !e.nativeEvent.isComposing && e.keyCode !== 229) {
 			const h = history.current;
-			const browsing = h.at >= 0 && text === inputAt(h.at);
+			const browsing = h.at >= 0 && text === inputAt(draftKey, h.at);
 			let next: string | undefined;
 			if (e.key === "ArrowUp" && (browsing || !text)) {
 				const at = browsing ? h.at + 1 : 0;
-				const found = inputAt(at);
+				const found = inputAt(draftKey, at);
 				if (found !== undefined) {
 					history.current = { at, draft: browsing ? h.draft : text };
 					next = found;
@@ -801,7 +801,7 @@ export function Composer({ newChat = false }: { newChat?: boolean }) {
 			} else if (e.key === "ArrowDown" && browsing) {
 				const at = h.at - 1;
 				history.current = { at, draft: h.draft };
-				next = at < 0 ? h.draft : inputAt(at);
+				next = at < 0 ? h.draft : inputAt(draftKey, at);
 			}
 			if (next !== undefined) {
 				e.preventDefault();

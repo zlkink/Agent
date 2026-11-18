@@ -113,10 +113,18 @@ jobs:
       - name: Build desktop app and installers
         shell: bash
         working-directory: server-go/desktop-shell
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
-          TARGET_ARG=""
-          if [ -n "${{ matrix.target }}" ]; then TARGET_ARG="--target ${{ matrix.target }}"; fi
-          pnpm dlx @tauri-apps/cli@2 build --config src-tauri/tauri.conf.json --bundles ${{ matrix.bundles }} $TARGET_ARG
+          TARGET_ARG=()
+          if [ -n "${{ matrix.target }}" ]; then TARGET_ARG=(--target "${{ matrix.target }}"); fi
+          SIGN_ARG=()
+          if [ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
+            printf '{"bundle":{"createUpdaterArtifacts":true}}' > .updater-signing.json
+            SIGN_ARG=(--config .updater-signing.json)
+          fi
+          pnpm dlx @tauri-apps/cli@2 build --config src-tauri/tauri.conf.json "${SIGN_ARG[@]}" --bundles ${{ matrix.bundles }} "${TARGET_ARG[@]}"
 
       - name: Assemble portable package and artifacts
         shell: bash
@@ -174,6 +182,37 @@ jobs:
             cp "$DESKTOP" "$P/RamiCore Desktop${{ matrix.ext }}"
           fi
 
+          # Signed updater archives (and their .sig files) travel with the release so latest.json can point at them.
+          find "$TARGET_ROOT/release/bundle" -type f \
+            \( -name '*.app.tar.gz' \) \
+            -exec cp -v {} "$OUT/installers/" \;
+          find "$TARGET_ROOT/release/bundle" -type f -name '*.sig' -exec cp -v {} "$OUT/installers/" \;
+
+          VERSION="$(node -p "require('./server-go/desktop-shell/src-tauri/tauri.conf.json').version")"
+          TAG="${GITHUB_REF_NAME}"
+          BASE="https://github.com/zlkink/Agent/releases/download/${TAG}"
+          PLATFORM=""
+          ART=""
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            PLATFORM=windows-x86_64
+            ART="$(find "$OUT/installers" -maxdepth 1 -name 'RamiCore_*-setup.exe' | head -n1)"
+          elif [ "${RUNNER_OS}" = "macOS" ]; then
+            PLATFORM=darwin-aarch64
+            ART="$(find "$OUT/installers" -maxdepth 1 -name '*.app.tar.gz' | head -n1)"
+          else
+            PLATFORM=linux-x86_64
+            ART="$(find "$OUT/installers" -maxdepth 1 -name '*.AppImage' | head -n1)"
+          fi
+          if [ -n "$PLATFORM" ] && [ -n "$ART" ] && [ -f "$ART.sig" ]; then
+            node -e '
+              const fs = require("fs");
+              const [file, sig, version, base, platform, out] = process.argv.slice(1);
+              const name = require("path").basename(file);
+              const data = { version, platforms: { [platform]: { signature: fs.readFileSync(sig, "utf8").trim(), url: base + "/" + name } } };
+              fs.writeFileSync(out, JSON.stringify(data, null, 2));
+            ' "$ART" "$ART.sig" "$VERSION" "$BASE" "$PLATFORM" "$OUT/latest-$PLATFORM.json"
+          fi
+
           SUFFIX="${{ matrix.name }}"
           if [ "${RUNNER_OS}" = "Windows" ]; then
             powershell -NoProfile -Command "Compress-Archive -Path '$P' -DestinationPath '$OUT/RamiCore-$SUFFIX.zip'"
@@ -201,6 +240,24 @@ jobs:
           path: artifacts
           merge-multiple: true
 
+      - name: Merge updater manifest
+        shell: bash
+        run: |
+          node -e '
+            const fs = require("fs"), path = require("path");
+            const dir = "artifacts";
+            const platforms = {};
+            let version = "";
+            for (const f of fs.readdirSync(dir)) {
+              if (!/^latest-.*\.json$/.test(f)) continue;
+              const j = JSON.parse(fs.readFileSync(path.join(dir, f), "utf8"));
+              version ||= j.version;
+              Object.assign(platforms, j.platforms || {});
+            }
+            if (!version || !Object.keys(platforms).length) { console.error("no updater fragments"); process.exit(1); }
+            fs.writeFileSync(path.join(dir, "latest.json"), JSON.stringify({ version, notes: "RamiCore " + version, pub_date: new Date().toISOString(), platforms }, null, 2));
+          '
+
       - uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.ref_name }}
@@ -210,4 +267,5 @@ jobs:
             artifacts/*.zip
             artifacts/*.tar.gz
             artifacts/installers/*
+            artifacts/latest.json
           fail_on_unmatched_files: true

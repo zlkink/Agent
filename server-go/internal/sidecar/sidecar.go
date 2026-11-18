@@ -259,3 +259,16 @@ func indexByte(s string, b byte) int {
 	}
 	return -1
 }
+
+// Drain discards events that arrived after the host stopped reading a prompt
+// (for example the tail of an interrupted turn). Without it, the next prompt
+// could consume a stale done and finish without doing anything.
+func (c *Client) Drain() {
+	for {
+		select {
+		case <-c.events:
+		default:
+			return
+		}
+	}
+}

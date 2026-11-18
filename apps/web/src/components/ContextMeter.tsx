@@ -135,7 +135,7 @@ export function ContextMeter() {
 	};
 
 	return (
-		<div ref={ref} className="shrink-0 md:relative">
+		<div ref={ref} className="shrink-0 select-none md:relative">
 			<button
 				type="button"
 				onClick={() => {

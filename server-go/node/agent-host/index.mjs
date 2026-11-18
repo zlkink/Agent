@@ -78,11 +78,13 @@ try {
 
 let q = null;
 let pendingModel = '';
-let nativeSessionId = '';
+let nativeSessionId = process.env.PROMETHEUS_RESUME_SESSION || '';
 let activeModel = model;
 let restartForModel = false;
 let finished = false;
 let busy = false;
+// Whether the current query delivered a result; interrupted queries may just end.
+let resultSeen = false;
 let sawTextDelta = false;
 let wake = null;
 const queue = [];
@@ -131,6 +133,11 @@ function baseEnv(targetModel) {
   const env = { ...process.env };
   env.CLAUDE_AGENT_SDK_CLIENT_APP = 'prometheus-go';
   env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = '1';
+  // The subagent tool waits for a whole Claude/Codex review, which routinely
+  // takes minutes. The CLI's default MCP tool timeout would abort the call even
+  // though the host kept working ("The operation timed out.").
+  env.MCP_TOOL_TIMEOUT = env.MCP_TOOL_TIMEOUT || '7200000';
+  env.MCP_TIMEOUT = env.MCP_TIMEOUT || '60000';
   const noProxy = [env.NO_PROXY ?? env.no_proxy ?? '', '127.0.0.1', 'localhost', '::1']
     .filter(Boolean)
     .join(',');
@@ -213,7 +220,14 @@ function ensureQuery() {
     } catch (err) {
       if (q === instance) emit({ type: 'error', message: err?.message || String(err) });
     } finally {
-      if (q === instance) busy = false;
+      if (q === instance) {
+        // An interrupt can end the iterator without a result. Tell the host the
+        // turn is over so it can save the partial reply instead of waiting.
+        if (!resultSeen) {
+          emit({ type: 'done', result: '', isError: true, subtype: 'aborted', usage: {} });
+        }
+        busy = false;
+      }
     }
   })();
 }
@@ -283,6 +297,7 @@ async function handle(msg) {
     }
 
     case 'result': {
+      resultSeen = true;
       const isError = !!msg.is_error || (!!msg.subtype && msg.subtype !== 'success');
       // Claude Code knows its own system prompt, tools and window; report the
       // fill before `done` so the host has it when the turn settles.
@@ -320,6 +335,7 @@ function onPrompt(text, context, images = []) {
     busy = false;
   }
   busy = true;
+  resultSeen = false;
   turnContext = context || '';
   sawTextDelta = false;
   seenTools.clear();

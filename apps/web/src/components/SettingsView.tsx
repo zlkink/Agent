@@ -121,6 +121,11 @@ const M = defineMessages({
 		compactPercentOff: "自动压缩已关闭，此处不生效；重新开启后按此比例压缩。",
 		recycleDays: "会话回收",
 		recycleDaysHint: "超过设定天数未活动的会话会自动从左侧列表移除以减轻负担（文件保留，不会删除）。0 表示不回收。",
+		retryAttempts: "供应商错误自动重试",
+		retryAttemptsHint: "遇到限流、5xx 或网络中断时自动重试，界面会显示第 N 次重试。0 表示不重试。",
+		autoContinue: "空收尾自动续跑",
+		autoContinueHint: "一轮结束时只有工具调用或“我先确认…”这类过程说明、没有最终回答时，自动追加一次“基于已有结果直接回答”，最多 1–2 次，避免死循环。0 表示关闭。",
+		times: "次",
 		days: "天",
 		chatWidth: "对话宽度",
 		chatWidthHint: "也可以在对话页面里拖动内容两侧的边缘调整，双击边缘恢复自适应。",
@@ -239,6 +244,11 @@ const M = defineMessages({
 		compactPercentOff: "Auto-compaction is off, so this has no effect until you turn it back on.",
 		recycleDays: "Session recycling",
 		recycleDaysHint: "Chats idle for more than this many days drop out of the sidebar list to lighten the load (files are kept, nothing is deleted). 0 turns it off.",
+		retryAttempts: "Retry provider errors",
+		retryAttemptsHint: "Retries rate limits, 5xx and network failures, showing “retry N” in the chat. 0 disables retries.",
+		autoContinue: "Continue empty turns",
+		autoContinueHint: "When a turn ends after tool calls with only a progress line and no final answer, asks once for the answer based on the result. 0 disables it.",
+		times: "×",
 		days: "days",
 		chatWidth: "Chat width",
 		chatWidthHint: "You can also drag the edges beside the chat column; double-click an edge to go back to automatic.",
@@ -538,8 +548,7 @@ function DefaultPermissionRow() {
 	);
 }
 
-function RecycleDaysRow() {
-	const t = useT(M);
+function RecycleDaysRow() {	const t = useT(M);
 	const host = useStore((s) => s.hostSettings);
 	const saved = host?.recycleDays ?? 0;
 	const [text, setText] = useState<string | null>(null);
@@ -565,6 +574,36 @@ function RecycleDaysRow() {
 					aria-label={t("recycleDays")}
 				/>
 				<span className="text-xs text-ink-400">{t("days")}</span>
+			</div>
+		</Row>
+	);
+}
+
+/** Small integer setting with the same commit-on-blur behaviour as the recycling row. */
+function CountRow({ label, hint, value, max, onCommit }: { label: string; hint: string; value: number; max: number; onCommit: (n: number) => void }) {
+	const t = useT(M);
+	const [text, setText] = useState<string | null>(null);
+	const commit = () => {
+		if (text === null) return;
+		const n = Math.max(0, Math.min(max, Math.floor(Number(text) || 0)));
+		setText(null);
+		if (n !== value) onCommit(n);
+	};
+	return (
+		<Row label={label} hint={hint}>
+			<div className="flex items-center gap-2">
+				<input
+					type="number"
+					min={0}
+					max={max}
+					value={text ?? String(value)}
+					onChange={(e) => setText(e.target.value)}
+					onBlur={commit}
+					onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+					className="w-20 rounded-md border border-ink-700 bg-transparent px-2 py-1 text-sm text-ink-200"
+					aria-label={label}
+				/>
+				<span className="text-xs text-ink-400">{t("times")}</span>
 			</div>
 		</Row>
 	);
@@ -806,6 +845,8 @@ function ChatSettings() {
 						</Row>
 						<CompactPercentRow />
 						<RecycleDaysRow />
+						<CountRow label={t("retryAttempts")} hint={t("retryAttemptsHint")} value={host?.retryAttempts ?? 3} max={10} onCommit={(retryAttempts) => void updateHostSettings({ retryAttempts })} />
+						<CountRow label={t("autoContinue")} hint={t("autoContinueHint")} value={host?.autoContinue ?? 0} max={2} onCommit={(autoContinue) => void updateHostSettings({ autoContinue })} />
 						<Row label={t("sendMode")} hint={t("sendModeHint")}>
 							<Segmented<SendMode>
 								value={prefs.sendMode}

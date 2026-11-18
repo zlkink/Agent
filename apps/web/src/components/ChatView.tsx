@@ -5,6 +5,7 @@ import { defineMessages, useT } from "../lib/i18n.ts";
 import { loadEarlier, useStore } from "../lib/store.ts";
 import { ChatWidthControls } from "./ChatWidthControls.tsx";
 import { Composer } from "./Composer.tsx";
+import { InlineQuestion } from "./InlineQuestion.tsx";
 import { MessageList } from "./MessageList.tsx";
 import { TaskPanel } from "./TaskPanel.tsx";
 import { Flame } from "./ui.tsx";
@@ -237,6 +238,7 @@ function ChatBody() {
 			</div>
 			<Widgets placement="aboveEditor" />
 			<TaskPanel />
+			<InlineQuestion />
 			<Composer />
 			<Widgets placement="belowEditor" />
 		</>

@@ -469,6 +469,13 @@ function flush(): void {
 	let next = session;
 	for (const e of events) next = reduce(next, e);
 	set({ session: next });
+	// Keep the sidebar row in step when the server names a new chat from its
+	// first prompt (the summary list is otherwise only refreshed on navigation).
+	const renamed = events.find((e) => e.type === "session_info_changed");
+	if (renamed?.type === "session_info_changed" && renamed.name) {
+		const name = renamed.name;
+		set((s) => ({ sessions: s.sessions.map((x) => (x.id === next.id ? { ...x, name } : x)) }));
+	}
 	if (next.subagents !== session.subagents) noteSubagents(next.subagents);
 	for (const e of events) if (e.type === "tool_execution_start") noteWorkbenchTool(e.toolName, e.args, session.cwd);
 	if (events.some((e) => e.type === "agent_settled" || e.type === "message_end" || e.type === "compaction_end")) void refreshStats();

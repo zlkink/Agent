@@ -42,12 +42,35 @@ export function cancelUpdate(): void {
 }
 
 let pending: Update | null = null;
+/** Release page used when the signed updater manifest is missing from the release. */
+let manualUrl: string | null = null;
 /** Android: where the new APK is downloaded from (the system installer takes over from there). */
 let apkUrl: string | null = null;
 
 const RELEASES_API = "https://api.github.com/repos/zlkink/Agent/releases/latest";
 
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+/** GitHub fallback: release tag and page, for releases that lack latest.json. */
+async function githubRelease(): Promise<{ version: string; url: string; notes: string | null } | null> {
+	try {
+		const res = await fetch(RELEASES_API, { headers: { Accept: "application/vnd.github+json" } });
+		if (res.ok) {
+			const r = (await res.json()) as { tag_name?: string; body?: string };
+			if (r.tag_name) return { version: r.tag_name.replace(/^.*?v(?=\d)/, ""), url: `https://github.com/zlkink/Agent/releases/tag/${r.tag_name}`, notes: r.body ?? null };
+		}
+	} catch {
+		// Rate limited or offline: the redirect below works without the API.
+	}
+	try {
+		const res = await fetch("https://github.com/zlkink/Agent/releases/latest", { redirect: "follow" });
+		const m = res.url.match(/\/releases\/tag\/([^/?#]+)/);
+		if (m?.[1]) return { version: m[1].replace(/^.*?v(?=\d)/, ""), url: res.url, notes: null };
+	} catch {
+		// Fall through to the original error.
+	}
+	return null;
+}
 
 /** Desktop uses the signed Tauri updater; Android (no such plugin) installs the APK from the release page. */
 export async function updaterSupported(): Promise<boolean> {
@@ -89,8 +112,18 @@ export async function checkForUpdate(silent = false): Promise<void> {
 			return;
 		}
 		pending = update;
+		manualUrl = null;
 		useUpdater.setState({ phase: "available", version: update.version, notes: update.body ?? null, dismissed: false });
 	} catch (e) {
+		// A release without latest.json cannot drive the signed updater. Still
+		// report a newer release and let the user open its download page.
+		const rel = await githubRelease();
+		if (rel && isNewer(rel.version, __APP_VERSION__)) {
+			manualUrl = rel.url;
+			pending = null;
+			useUpdater.setState({ phase: "available", version: rel.version, notes: rel.notes ?? "自动更新清单不可用，将从 GitHub 下载页安装。", dismissed: false });
+			return;
+		}
 		useUpdater.setState(silent ? { phase: "idle" } : { phase: "error", error: errText(e) });
 	}
 }
@@ -165,7 +198,13 @@ export function startIdleUpdater(): () => void {
 export async function installUpdate(whenIdle = false): Promise<void> {
 	if (isAndroid()) return installAndroid();
 	const update = pending;
-	if (!update) return;
+	if (!update) {
+		if (manualUrl) {
+			const { openUrl } = await import("@tauri-apps/plugin-opener");
+			await openUrl(manualUrl);
+		}
+		return;
+	}
 	useUpdater.setState({ phase: "installing", error: null, received: 0, total: null, downloaded: false });
 	const cancelled = new Promise<"cancelled">((resolve) => {
 		cancelDownload = () => resolve("cancelled");

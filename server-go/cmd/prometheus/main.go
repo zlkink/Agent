@@ -110,7 +110,7 @@ func uvPythonDirs() []string {
 	return out
 }
 
-func (s *setup) NewSidecar(sessionID, cwd, mcpURL, mcpToken, staticContext string) (*sidecar.Client, error) {
+func (s *setup) NewSidecar(sessionID, cwd, mcpURL, mcpToken, staticContext, resume string) (*sidecar.Client, error) {
 	if cwd == "" {
 		cwd = s.cwd
 	}
@@ -119,6 +119,9 @@ func (s *setup) NewSidecar(sessionID, cwd, mcpURL, mcpToken, staticContext strin
 		env[k] = v
 	}
 	env["PROMETHEUS_CWD"] = cwd
+	if resume != "" {
+		env["PROMETHEUS_RESUME_SESSION"] = resume
+	}
 	// A project virtualenv should win over the global Python: uv/venv layouts put
 	// the interpreter in Scripts (Windows) or bin (macOS/Linux).
 	var pythonPaths []string
@@ -187,7 +190,7 @@ func main() {
 		pluginHost = flag.String("plugin-host", os.Getenv("PROMETHEUS_PLUGIN_URL"), "TypeScript plugin host URL (tools merged into the MCP bus)")
 		allowWrite = flag.Bool("allow-write", false, "give the sidecar Bash/Edit/Write tools (permission bridge still gates them)")
 		bootstrap  = flag.Bool("bootstrap", false, "install PI and build the bundled TypeScript plugin host")
-		timeout    = flag.Duration("timeout", 4*time.Hour, "prompt timeout")
+		timeout    = flag.Duration("timeout", 0, "prompt timeout (0: no timeout)")
 	)
 	flag.Parse()
 
@@ -218,7 +221,7 @@ func main() {
 	if *prompt != "" {
 		runCtx, cancel := context.WithTimeout(ctx, *timeout)
 		defer cancel()
-		sc, err := s.NewSidecar("prompt", "", "", "", "")
+		sc, err := s.NewSidecar("prompt", "", "", "", "", "")
 		if err != nil {
 			log.Fatalf("sidecar: %v", err)
 		}

@@ -35,7 +35,7 @@ func envMap(items []string) map[string]string {
 }
 
 func (h *Host) runAcpPrompt(s *Session, text string) {
-	c, sessionID, err := h.ensureAcp(s)
+	c, sessionID, fresh, err := h.ensureAcp(s)
 	if err != nil {
 		h.finishError(s, err)
 		return
@@ -66,12 +66,18 @@ func (h *Host) runAcpPrompt(s *Session, text string) {
 	})
 
 	staticCtx, turnCtx := h.pluginContext(text, s)
-	ctx, cancel := context.WithTimeout(context.Background(), promptTimeout)
+	ctx, cancel := promptContext()
 	defer cancel()
+	promptText := text
+	if fresh {
+		if hist := h.historyContext(s, 16, 16000); hist != "" {
+			promptText = "此前对话：\n" + hist + "\n\n当前用户消息：\n" + text
+		}
+	}
 	params := map[string]any{
 		"sessionId": sessionID,
 		"prompt": []any{map[string]any{
-			"type": "text", "text": withContext(staticCtx, turnCtx, text),
+			"type": "text", "text": withContext(staticCtx, turnCtx, promptText),
 		}},
 	}
 	raw, err := c.Request(ctx, "session/prompt", params)
@@ -90,16 +96,16 @@ func (h *Host) runAcpPrompt(s *Session, text string) {
 	h.finishAcp(s, state, nil)
 }
 
-func (h *Host) ensureAcp(s *Session) (*acp.Client, string, error) {
+func (h *Host) ensureAcp(s *Session) (*acp.Client, string, bool, error) {
 	s.mu.Lock()
 	c := s.acpClient
 	sessionID := s.acpSession
 	s.mu.Unlock()
 	if c != nil && sessionID != "" {
-		return c, sessionID, nil
+		return c, sessionID, false, nil
 	}
 	if h.cfg.ACPEntry == "" {
-		return nil, "", fmt.Errorf("ACP adapter is not installed")
+		return nil, "", false, fmt.Errorf("ACP adapter is not installed")
 	}
 	c, err := acp.Start(acp.StartOptions{
 		Node:  h.cfg.ACPNode,
@@ -124,7 +130,7 @@ func (h *Host) ensureAcp(s *Session) (*acp.Client, string, error) {
 		},
 	})
 	if err != nil {
-		return nil, "", err
+		return nil, "", false, err
 	}
 	initCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -137,7 +143,7 @@ func (h *Host) ensureAcp(s *Session) (*acp.Client, string, error) {
 		"clientInfo": map[string]any{"name": "prometheus", "version": "1"},
 	}); err != nil {
 		c.Close()
-		return nil, "", fmt.Errorf("ACP initialize: %w", err)
+		return nil, "", false, fmt.Errorf("ACP initialize: %w", err)
 	}
 	mcp := []any{}
 	if h.bus != nil {
@@ -167,7 +173,7 @@ func (h *Host) ensureAcp(s *Session) (*acp.Client, string, error) {
 	raw, err := c.Request(initCtx, "session/new", map[string]any{"cwd": s.Cwd, "mcpServers": mcp})
 	if err != nil {
 		c.Close()
-		return nil, "", fmt.Errorf("ACP session/new: %w", err)
+		return nil, "", false, fmt.Errorf("ACP session/new: %w", err)
 	}
 	var opened struct {
 		SessionID string `json:"sessionId"`
@@ -175,13 +181,13 @@ func (h *Host) ensureAcp(s *Session) (*acp.Client, string, error) {
 	_ = json.Unmarshal(raw, &opened)
 	if opened.SessionID == "" {
 		c.Close()
-		return nil, "", fmt.Errorf("ACP session/new returned no session id")
+		return nil, "", false, fmt.Errorf("ACP session/new returned no session id")
 	}
 	s.mu.Lock()
 	s.acpClient = c
 	s.acpSession = opened.SessionID
 	s.mu.Unlock()
-	return c, opened.SessionID, nil
+	return c, opened.SessionID, true, nil
 }
 
 func (h *Host) acpNotify(s *Session, method string, params json.RawMessage) {
@@ -226,7 +232,7 @@ func (h *Host) acpNotify(s *Session, method string, params json.RawMessage) {
 }
 
 func (h *Host) acpText(s *Session, state *acpPromptState, text, kind string) {
-	if text == "" {
+	if text == "" || (kind == "thinking" && !hasVisible(text)) {
 		return
 	}
 	state.mu.Lock()

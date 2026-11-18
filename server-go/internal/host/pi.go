@@ -69,7 +69,7 @@ func (h *Host) runPiPrompt(s *Session, text string) {
 		s.mu.Unlock()
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), promptTimeout)
+	ctx, cancel := promptContext()
 	defer cancel()
 	settled := false
 	staticCtx, turnCtx := h.pluginContext(text, s)

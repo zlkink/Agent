@@ -72,6 +72,7 @@ const M = defineMessages({
 		showLess: "收起",
 		openFolder: "打开项目目录",
 		newChat: "在此工作区新建对话",
+		running: "有会话正在运行",
 		newSession: "新会话",
 		startChat: "新对话",
 		home: "主页",
@@ -116,6 +117,7 @@ const M = defineMessages({
 		showLess: "Collapse",
 		openFolder: "Open project folder",
 		newChat: "New chat in this workspace",
+		running: "A chat is running",
 		newSession: "New chat",
 		startChat: "New chat",
 		home: "Home",
@@ -406,6 +408,11 @@ function WorkspaceGroup({
 	const [limit, setLimit] = useState(PAGE);
 	const live = sessions.filter((s) => !s.archived);
 	const archived = sessions.filter((s) => s.archived);
+	// A folded workspace would otherwise hide that one of its chats is still
+	// working. The summary flag covers background chats; the active session is
+	// checked directly so the dot appears the moment a reply starts.
+	const activeStreaming = useStore((st) => st.session?.workspaceId === w.id && st.session.isStreaming);
+	const running = activeStreaming || live.some((s) => s.running);
 	const menu = usePopover();
 	const [foldersOf, setFoldersOf] = useState<WorkspaceInfo | null>(null);
 	// One collapsed workspace at a time per app run (plus whichever is open), remembered per folder.
@@ -432,7 +439,8 @@ function WorkspaceGroup({
 					{open.isOpen ? <ChevronDown className="size-3.5 shrink-0 text-ink-500" /> : <ChevronRight className="size-3.5 shrink-0 text-ink-500" />}
 					<FolderOpen className={clsx("size-4 shrink-0", current ? "text-ember-400" : "text-ink-400")} />
 					<span className="truncate text-[13px] font-medium text-ink-200">{w.name}</span>
-					{live.length > 0 && <span className="ml-1 font-mono text-[10px] text-ink-600">{live.length}</span>}
+					{running && <span className="size-1.5 shrink-0 animate-breathe rounded-full bg-amber-400" role="status" aria-label={t("running")} title={t("running")} />}
+					{live.length > 0 && <span className={clsx("ml-1 font-mono text-[10px]", running ? "text-amber-300" : "text-ink-600")}>{live.length}</span>}
 				</button>
 				<div ref={menu.ref} className="relative flex items-center">
 					<button

@@ -2,12 +2,12 @@ package host
 
 import (
 	"bufio"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -47,6 +47,15 @@ func (h *Host) runCodexPrompt(s *Session, text string) {
 	if h.cfg.AllowWrite {
 		sandbox = "workspace-write"
 	}
+	if runtime.GOOS == "windows" {
+		// Same broken restricted-token sandbox as the Codex subagent: commands
+		// fail with CreateRestrictedToken 87 and the model answers without tools.
+		// Keep the agent usable and enforce the read-only case in the prompt.
+		sandbox = "danger-full-access"
+		if !h.cfg.AllowWrite {
+			text = "只读模式：只允许读取、搜索和执行只读命令；不要修改、创建或删除文件。\n\n" + text
+		}
+	}
 	args := []string{
 		"exec", "--json", "--color", "never", "--skip-git-repo-check", "--ephemeral",
 		"-C", s.Cwd, "-s", sandbox, "-c", `approval_policy="never"`,
@@ -62,6 +71,9 @@ func (h *Host) runCodexPrompt(s *Session, text string) {
 		url, token := h.bus.Open(s.ID, s.Cwd)
 		busToken = token
 		args = append(args, "-c", `mcp_servers.prometheus.url=`+strconv.Quote(url), "-c", `mcp_servers.prometheus.bearer_token_env_var="RAMICORE_MCP_TOKEN"`)
+		// Subagent reviews can run for minutes; Codex's MCP tool timeout defaults
+		// are much shorter and would fail the call while the host still works.
+		args = append(args, "-c", `mcp_servers.prometheus.tool_timeout_sec=7200`, "-c", `mcp_servers.prometheus.startup_timeout_sec=60`)
 	}
 	for name, cfg := range mcpconfig.Load(h.cfg.DataDir) {
 		key := `mcp_servers.` + strconv.Quote(name)
@@ -83,7 +95,7 @@ func (h *Host) runCodexPrompt(s *Session, text string) {
 			args = append(args, "-c", key+`.url=`+strconv.Quote(url))
 		}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), promptTimeout)
+	ctx, cancel := promptContext()
 	defer cancel()
 	cmd := exec.CommandContext(ctx, h.cfg.Codex.Path, args...)
 	cmd.Dir = s.Cwd
@@ -133,7 +145,7 @@ func (h *Host) runCodexPrompt(s *Session, text string) {
 		return out
 	})
 	appendThinking := func(delta string) {
-		if delta == "" {
+		if !hasVisible(delta) {
 			return
 		}
 		liveMu.Lock()
