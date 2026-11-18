@@ -597,6 +597,9 @@ export function Sidebar({ target, onDisconnect }: { target: BackendTarget; onDis
 	const openingId = useStore((s) => s.opening?.id);
 	const view = useStore((s) => s.view);
 	const conn = useStore((s) => s.conn);
+	// The version of the host this window is connected to, not the bundled UI:
+	// switching platforms must show that platform's build.
+	const hostVersion = useStore((s) => s.hostInfo?.version);
 	const plugins = useStore((s) => s.plugins);
 	const [panels, setPanels] = useState<PanelInfo[]>([]);
 	const [picking, setPicking] = useState(false);
@@ -727,7 +730,7 @@ export function Sidebar({ target, onDisconnect }: { target: BackendTarget; onDis
 					<span className={clsx("size-1.5 shrink-0 rounded-full", conn === "open" ? "bg-moss-400" : "animate-breathe bg-ember-400")} />
 					<PlatformSwitcher target={target} />
 					<button type="button" onClick={() => openSettings("general")} className="shrink-0 font-mono text-[11px] text-ink-600 hover:text-ink-300" title={t("about")}>
-						v{__APP_VERSION__}
+						v{(hostVersion ?? __APP_VERSION__).replace(/-ramicore$/, "")}
 					</button>
 				</span>
 				<button
