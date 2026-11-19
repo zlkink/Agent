@@ -11,6 +11,10 @@ import (
 // pythonEnv puts the project's virtualenv and uv-managed interpreters ahead of
 // PATH. Every runtime gets it: without this only the Claude sidecar knew about
 // a venv, while Codex/ACP/OpenCode ran `python` against a PATH with none.
+// PythonEnv is the environment for agent processes in cwd: its virtualenv,
+// uv-managed interpreters and uv itself ahead of PATH.
+func PythonEnv(cwd string) map[string]string { return pythonEnv(cwd) }
+
 func pythonEnv(cwd string) map[string]string {
 	env := map[string]string{}
 	var paths []string

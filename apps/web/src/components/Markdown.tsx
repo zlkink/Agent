@@ -7,6 +7,7 @@ import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
 import { fileLinkPath, looksLikeFilePath } from "../lib/download.ts";
 import { FileLink, PathCode } from "./FileDownloadButton.tsx";
+import { Lightbox } from "./ImageStrip.tsx";
 
 function textOf(node: ReactNode): string {
 	if (node == null || typeof node === "boolean") return "";
@@ -14,6 +15,17 @@ function textOf(node: ReactNode): string {
 	if (Array.isArray(node)) return node.map(textOf).join("");
 	if (isValidElement(node)) return textOf((node.props as { children?: ReactNode }).children);
 	return "";
+}
+
+function MarkdownImage({ src, alt, node: _node, ...rest }: React.ComponentPropsWithoutRef<"img"> & { node?: unknown }) {
+	const [open, setOpen] = useState(false);
+	if (!src) return null;
+	return (
+		<>
+			<img {...rest} src={src} alt={alt ?? ""} loading="lazy" className="cursor-zoom-in rounded-lg" onClick={() => setOpen(true)} />
+			{open && <Lightbox src={src} onClose={() => setOpen(false)} />}
+		</>
+	);
 }
 
 function CodeBlock({ children, ...rest }: React.ComponentPropsWithoutRef<"pre"> & { node?: unknown }) {

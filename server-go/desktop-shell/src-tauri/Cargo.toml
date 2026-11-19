@@ -1,6 +1,6 @@
 [package]
 name = "ramicore-desktop"
-version = "0.30.32"
+version = "0.30.33"
 edition = "2021"
 rust-version = "1.77"
 

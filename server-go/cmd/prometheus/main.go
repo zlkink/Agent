@@ -19,7 +19,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
-	"sort"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -69,47 +68,6 @@ type setup struct {
 	token       string
 }
 
-// uvPythonDirs returns directories that contain a uv-managed python executable.
-// They are not normally on PATH, which made `python` look unavailable even
-// though `uv python list` showed an interpreter.
-func uvPythonDirs() []string {
-	var roots []string
-	home, _ := os.UserHomeDir()
-	if runtime.GOOS == "windows" {
-		if d := os.Getenv("APPDATA"); d != "" {
-			roots = append(roots, filepath.Join(d, "uv", "python"))
-		}
-		if d := os.Getenv("LOCALAPPDATA"); d != "" {
-			roots = append(roots, filepath.Join(d, "uv", "python"))
-		}
-	} else {
-		roots = append(roots, filepath.Join(home, ".local", "share", "uv", "python"))
-		if d := os.Getenv("XDG_DATA_HOME"); d != "" {
-			roots = append(roots, filepath.Join(d, "uv", "python"))
-		}
-		roots = append(roots, filepath.Join(home, ".local", "bin"))
-	}
-	seen := map[string]bool{}
-	var out []string
-	for _, root := range roots {
-		matches, _ := filepath.Glob(filepath.Join(root, "*"))
-		sort.Sort(sort.Reverse(sort.StringSlice(matches)))
-		for _, dir := range matches {
-			if seen[dir] {
-				continue
-			}
-			for _, exe := range []string{"python.exe", "python3", "python"} {
-				if fi, err := os.Stat(filepath.Join(dir, exe)); err == nil && !fi.IsDir() {
-					seen[dir] = true
-					out = append(out, dir)
-					break
-				}
-			}
-		}
-	}
-	return out
-}
-
 func (s *setup) NewSidecar(sessionID, cwd, mcpURL, mcpToken, staticContext, resume string) (*sidecar.Client, error) {
 	if cwd == "" {
 		cwd = s.cwd
@@ -122,27 +80,9 @@ func (s *setup) NewSidecar(sessionID, cwd, mcpURL, mcpToken, staticContext, resu
 	if resume != "" {
 		env["PROMETHEUS_RESUME_SESSION"] = resume
 	}
-	// A project virtualenv should win over the global Python: uv/venv layouts put
-	// the interpreter in Scripts (Windows) or bin (macOS/Linux).
-	var pythonPaths []string
-	for _, sub := range []string{"Scripts", "bin"} {
-		dir := filepath.Join(cwd, ".venv", sub)
-		if fi, err := os.Stat(dir); err == nil && fi.IsDir() {
-			env["VIRTUAL_ENV"] = filepath.Join(cwd, ".venv")
-			pythonPaths = append(pythonPaths, dir)
-			break
-		}
-	}
-	// uv installs Python outside PATH (its Windows directory has python.exe, but
-	// ~/.local/bin only has versioned shims). Add the managed interpreters too so
-	// `python` works without a project venv.
-	pythonPaths = append(pythonPaths, uvPythonDirs()...)
-	if len(pythonPaths) > 0 {
-		path := env["PATH"]
-		if path == "" {
-			path = os.Getenv("PATH")
-		}
-		env["PATH"] = strings.Join(pythonPaths, string(os.PathListSeparator)) + string(os.PathListSeparator) + path
+	// The project venv and uv-managed interpreters, shared with every runtime.
+	for k, v := range host.PythonEnv(cwd) {
+		env[k] = v
 	}
 	if mcpURL != "" {
 		env["PROMETHEUS_MCP_URL"] = mcpURL

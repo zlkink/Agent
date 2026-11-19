@@ -28,7 +28,7 @@ import { SubagentsView } from "./SubagentsView.tsx";
 import { LogsView } from "./LogsView.tsx";
 import { VeilView } from "./VeilView.tsx";
 import { SkillsView } from "./SkillsView.tsx";
-import { DEFAULT_COMPACT_PERCENT, MAX_COMPACT_PERCENT, MIN_COMPACT_PERCENT, PERMISSION_MODES, type PermissionMode, THINKING_LEVELS, type ThinkingLevel, type WorktreeOverride, type WorktreeStrategy } from "@prometheus/protocol";
+import { DEFAULT_COMPACT_PERCENT, MAX_COMPACT_PERCENT, MIN_COMPACT_PERCENT, PERMISSION_MODES, type PermissionMode, type ThinkingLevel, type WorktreeOverride, type WorktreeStrategy } from "@prometheus/protocol";
 import { Button, PageHeader, Select } from "./ui.tsx";
 import { UsageView } from "./UsageView.tsx";
 import { ChannelsSettings } from "./ChannelsSettings.tsx";
@@ -88,13 +88,13 @@ const M = defineMessages({
 		defaultThinking: "默认思考力度",
 		defaultThinkingHint: "新对话一开始使用的思考力度。档位因模型而异，选了某档但模型不支持时，会沿用模型自己的默认值。对话里仍可随时切换。",
 		thinkingModelDefault: "跟随模型默认",
-		thinking_off: "关闭：不思考",
-		thinking_minimal: "极少",
+		thinking_off: "关闭",
+		thinking_minimal: "极低",
 		thinking_low: "较少",
 		thinking_medium: "中等",
 		thinking_high: "较高",
-		thinking_xhigh: "很高",
-		thinking_max: "最高",
+		thinking_xhigh: "极高",
+		thinking_max: "Max",
 		perm_auto: "Auto：全部放行，选择题由 AI 自己决定（有风险）",
 		chooseRoot: "选择…",
 		clearRoot: "清除",
@@ -738,21 +738,31 @@ function CompactPercentRow() {
 function DefaultThinkingRow() {
 	const t = useT(M);
 	const host = useStore((s) => s.hostSettings);
-	const models = useStore((s) => s.models);
-	const levels = useMemo(() => THINKING_LEVELS.filter((l) => models.some((m) => m.thinkingLevels?.includes(l))), [models]);
-	// Nothing to choose from until the model list arrives; the row would otherwise offer a level no model has.
-	if (!levels.length && !host?.defaultThinking) return null;
-	const options = levels.length ? levels : THINKING_LEVELS;
+	const options: ThinkingLevel[] = ["off", "minimal", "medium", "high", "xhigh", "max"];
+	const saved = host?.defaultThinking ?? "";
+	const index = Math.max(0, options.indexOf(saved as ThinkingLevel));
 	return (
 		<Row label={t("defaultThinking")} hint={t("defaultThinkingHint")}>
-			<Select className="max-w-80" value={host?.defaultThinking ?? ""} disabled={!host} onChange={(e) => void updateHostSettings({ defaultThinking: e.target.value as ThinkingLevel })}>
-				<option value="">{t("thinkingModelDefault")}</option>
-				{options.map((l) => (
-					<option key={l} value={l}>
-						{t(`thinking_${l}`)}
-					</option>
-				))}
-			</Select>
+			<div className="w-full max-w-80">
+				<input
+					type="range"
+					min={0}
+					max={options.length - 1}
+					step={1}
+					value={index}
+					disabled={!host}
+					onChange={(e) => void updateHostSettings({ defaultThinking: options[Number(e.target.value)] })}
+					className="w-full accent-ember-500"
+					aria-label={t("defaultThinking")}
+				/>
+				<div className="mt-1 flex justify-between font-mono text-[10px] text-ink-500">
+					{options.map((l) => (
+						<span key={l} className={l === options[index] ? "text-ember-300" : undefined}>
+							{t(`thinking_${l}`)}
+						</span>
+					))}
+				</div>
+			</div>
 		</Row>
 	);
 }
@@ -915,6 +925,7 @@ function ChatSettings() {
 							<Toggle checked={host?.autoCompaction ?? false} disabled={!host} onChange={(v) => void updateHostSettings({ autoCompaction: v })} />
 						</Row>
 						<CompactPercentRow />
+						<DefaultThinkingRow />
 						<RecycleDaysRow />
 						<CountRow label={t("retryAttempts")} hint={t("retryAttemptsHint")} value={host?.retryAttempts ?? 3} max={10} onCommit={(retryAttempts) => void updateHostSettings({ retryAttempts })} />
 						<CountRow label={t("autoContinue")} hint={t("autoContinueHint")} value={host?.autoContinue ?? 0} max={2} onCommit={(autoContinue) => void updateHostSettings({ autoContinue })} />
@@ -932,7 +943,6 @@ function ChatSettings() {
 							<Toggle checked={prefs.enterToSend} onChange={(enterToSend) => setPrefs({ enterToSend })} />
 						</Row>
 						<DefaultPermissionRow />
-						<DefaultThinkingRow />
 					</Section>
 
 					<WorktreeSection />

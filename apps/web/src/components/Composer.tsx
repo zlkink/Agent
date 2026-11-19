@@ -8,6 +8,7 @@ import { defineMessages, useT } from "../lib/i18n.ts";
 import { Mentions, SlashCommands } from "./suggestions.tsx";
 import { type Attachment, AttachmentError, fileToAttachment, formatSize, isPicture, MAX_FILE_MB, MAX_FILES } from "../lib/attachments.ts";
 import { fileToImage, ImageError, imageSrc, MAX_IMAGES } from "../lib/images.ts";
+import { Lightbox } from "./ImageStrip.tsx";
 import { inputAt, rememberInput } from "../lib/inputHistory.ts";
 import { loadDraft, NEW_CHAT_DRAFT, newChatDraft, saveDraft, switchDraft } from "../lib/drafts.ts";
 import { aliasKey, type SendMode, setPrefs, usePrefs } from "../lib/prefs.ts";
@@ -60,7 +61,7 @@ const M = defineMessages({
 		effort: "思考力度",
 		effortHint: "越高越深入，但更慢、更耗 token",
 		off: "关闭",
-		minimal: "轻度",
+		minimal: "极低",
 		low: "较低",
 		medium: "中",
 		high: "高",
@@ -68,6 +69,7 @@ const M = defineMessages({
 		max: "Max",
 		attach: "添加文件或图片",
 		removeImage: "移除图片",
+		enlarge: "点击放大",
 		removeFile: "移除文件",
 		filesTooMany: "一条消息最多 {n} 个文件",
 		fileTooBig: "「{name}」超过 {n} MB，无法上传",
@@ -122,6 +124,7 @@ const M = defineMessages({
 		max: "Max",
 		attach: "Add files or images",
 		removeImage: "Remove image",
+		enlarge: "Click to enlarge",
 		removeFile: "Remove file",
 		filesTooMany: "At most {n} files per message",
 		fileTooBig: "\"{name}\" is over {n} MB and cannot be uploaded",
@@ -162,6 +165,7 @@ function Attachments({
 	className?: string;
 }) {
 	const t = useT(M);
+	const [preview, setPreview] = useState<ImageContent | null>(null);
 	return (
 		<div className={clsx("flex flex-wrap gap-2", className)}>
 			{docs.map((d, i) => (
@@ -184,7 +188,9 @@ function Attachments({
 			))}
 			{images.map((img, i) => (
 				<div key={i} className="group/thumb relative size-16 overflow-hidden rounded-lg border border-ink-700 bg-ink-950">
-					<img src={imageSrc(img)} alt="" className="size-full object-cover" />
+					<button type="button" onClick={() => setPreview(img)} className="block size-full cursor-zoom-in" title={t("enlarge")} aria-label={t("enlarge")}>
+						<img src={imageSrc(img)} alt="" className="size-full object-cover" />
+					</button>
 					<button
 						type="button"
 						onClick={() => onRemoveImage(i)}
@@ -196,6 +202,7 @@ function Attachments({
 					</button>
 				</div>
 			))}
+			{preview && <Lightbox image={preview} onClose={() => setPreview(null)} />}
 			{Array.from({ length: reading }, (_, i) => (
 				<div key={`r${i}`} className="size-16 animate-pulse rounded-lg border border-ink-800 bg-ink-850" />
 			))}

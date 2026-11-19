@@ -116,7 +116,7 @@ func doSearchJSON(client *http.Client, req *http.Request, parse func([]byte) ([]
 }
 
 // searchHits maps provider structs by reflection-free field names, since the
-// three providers use different JSON shapes. result holds title/url and one of
+// providers use different JSON shapes. result holds title/url and one of
 // content/description.
 type searchHit struct {
 	Title       string `json:"title"`

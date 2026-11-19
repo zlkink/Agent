@@ -10,7 +10,7 @@ const M = defineMessages({
 	en: { image: "Image", close: "Close", enlarge: "Click to enlarge" },
 });
 
-function Lightbox({ image, onClose }: { image: ImageContent; onClose: () => void }) {
+export function Lightbox({ image, src, onClose }: { image?: ImageContent; src?: string; onClose: () => void }) {
 	const t = useT(M);
 	useEffect(() => {
 		const onKey = (e: KeyboardEvent) => {
@@ -24,7 +24,7 @@ function Lightbox({ image, onClose }: { image: ImageContent; onClose: () => void
 	}, [onClose]);
 	return createPortal(
 		<div role="dialog" aria-modal aria-label={t("image")} className="fixed inset-0 z-50 grid place-items-center bg-black/80 p-3 pt-14 backdrop-blur-sm md:p-6" onClick={onClose}>
-			<img src={imageSrc(image)} alt="" className="max-h-full max-w-full rounded-lg object-contain shadow-2xl" onClick={(e) => e.stopPropagation()} />
+			<img src={src ?? (image ? imageSrc(image) : "")} alt="" className="max-h-full max-w-full cursor-zoom-out rounded-lg object-contain shadow-2xl" onClick={onClose} />
 			<button type="button" onClick={onClose} className="absolute top-3 right-3 grid size-10 place-items-center rounded-full bg-ink-900/80 text-ink-100 hover:bg-ink-800 md:top-4 md:right-4 md:size-9" aria-label={t("close")}>
 				<X className="size-5" />
 			</button>
