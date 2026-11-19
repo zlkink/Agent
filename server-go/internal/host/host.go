@@ -1850,7 +1850,7 @@ func (h *Host) dispatch(method string, raw json.RawMessage) (any, error) {
 	switch method {
 	case "host.info":
 		return map[string]any{
-			"version": "0.30.30-ramicore", "piVersion": h.cfg.PIVersion, "protocol": protocolVersion,
+			"version": "0.30.31-ramicore", "piVersion": h.cfg.PIVersion, "protocol": protocolVersion,
 			"cwd": h.cfg.Cwd, "platform": runtime.GOOS,
 		}, nil
 
@@ -2603,6 +2603,34 @@ func (h *Host) dispatch(method string, raw json.RawMessage) (any, error) {
 			}
 			return map[string]any{"ok": true, "version": a.Version, "output": text}, nil
 		}
+		if kind == "codex" {
+			a, err := agents.Resolve(id)
+			if err != nil || a.Path == "" {
+				return nil, fmt.Errorf("Codex 未安装：请先用官方安装器或 npm 安装")
+			}
+			method := agents.InstallMethod(a.Path)
+			argv := agents.UpdateCommand(a.Path, method)
+			if len(argv) == 0 {
+				return nil, fmt.Errorf("无法判断 Codex 的安装方式（%s），请用它安装时的工具更新", a.Path)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+			defer cancel()
+			out, err := exec.CommandContext(ctx, argv[0], argv[1:]...).CombinedOutput()
+			text := strings.TrimSpace(string(out))
+			if err != nil {
+				if text == "" {
+					text = err.Error()
+				}
+				return nil, fmt.Errorf("Codex 更新失败：%s", text)
+			}
+			if again, err := agents.Resolve(id); err == nil {
+				a = again
+			}
+			if v, err := agents.Version(ctx, a.Path); err == nil {
+				a.Version = v
+			}
+			return map[string]any{"ok": true, "version": a.Version, "output": text}, nil
+		}
 		return nil, fmt.Errorf("installing this agent CLI is not implemented; install it with its official installer")
 	case "agent.uninstall":
 		return nil, fmt.Errorf("uninstalling agent CLIs is not implemented in the Go host")
@@ -2626,7 +2654,7 @@ func (h *Host) dispatch(method string, raw json.RawMessage) (any, error) {
 				// Claude Code can update itself (`claude update`) no matter how it
 				// was installed, including the native installer. Other CLIs are
 				// only updatable when the managed npm copy is the active one.
-				"canUpdate": a.Source == "managed" || (a.ID == "claude-code" && a.Path != "" && a.Source != "missing"),
+				"canUpdate": a.Source == "managed" || (a.ID == "claude-code" && a.Path != "" && a.Source != "missing") || (a.ID == "codex" && a.Path != "" && agents.InstallMethod(a.Path) != ""),
 			}
 			if a.Error != "" {
 				item["error"] = a.Error
@@ -4443,12 +4471,20 @@ func fetchModels(g *config.Gateway) ([]any, error) {
 		}
 		var payload struct {
 			Data []struct {
-				ID            string `json:"id"`
-				Name          string `json:"name"`
-				DisplayName   string `json:"display_name"`
-				ContextWindow int    `json:"context_window"`
-				ContextLength int    `json:"context_length"`
-				MaxInput      int    `json:"max_input_tokens"`
+				ID              string          `json:"id"`
+				Name            string          `json:"name"`
+				DisplayName     string          `json:"display_name"`
+				ContextWindow   int             `json:"context_window"`
+				ContextLength   int             `json:"context_length"`
+				MaxInput        int             `json:"max_input_tokens"`
+				SupportsVision  json.RawMessage `json:"supports_vision"`
+				Modalities      json.RawMessage `json:"modalities"`
+				InputModalities json.RawMessage `json:"input_modalities"`
+				Architecture    struct {
+					Modality        string          `json:"modality"`
+					InputModalities json.RawMessage `json:"input_modalities"`
+				} `json:"architecture"`
+				Capabilities json.RawMessage `json:"capabilities"`
 			} `json:"data"`
 		}
 		err = json.NewDecoder(res.Body).Decode(&payload)
@@ -4473,9 +4509,16 @@ func fetchModels(g *config.Gateway) ([]any, error) {
 			if cw <= 0 {
 				cw = m.MaxInput
 			}
+			vision := anyHasVision(m.SupportsVision) || anyHasVision(m.Capabilities) ||
+				anyHasVision(m.Modalities) || anyHasVision(m.InputModalities) ||
+				anyHasVision(m.Architecture.InputModalities) ||
+				strings.Contains(strings.ToLower(m.Architecture.Modality), "image")
+			if !vision {
+				vision = modelLooksVision(m.ID)
+			}
 			entry := map[string]any{
 				"id": m.ID, "name": name, "reasoning": true,
-				"vision": false, "contextWindow": cw,
+				"vision": vision, "contextWindow": cw,
 			}
 			out = append(out, entry)
 		}
@@ -4798,4 +4841,58 @@ func (h *Host) historyContext(s *Session, maxMessages, maxChars int) string {
 		out = out[:maxChars]
 	}
 	return strings.TrimSpace(out)
+}
+
+func anyHasVision(raw json.RawMessage) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	var v any
+	if json.Unmarshal(raw, &v) != nil {
+		return false
+	}
+	return valueHasVision(v)
+}
+
+func valueHasVision(v any) bool {
+	switch t := v.(type) {
+	case bool:
+		return t
+	case string:
+		s := strings.ToLower(t)
+		return s == "true" || s == "1" || strings.Contains(s, "image") || strings.Contains(s, "vision")
+	case []any:
+		for _, x := range t {
+			if valueHasVision(x) {
+				return true
+			}
+		}
+	case map[string]any:
+		for _, x := range t {
+			if valueHasVision(x) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// modelLooksVision is the fallback for providers whose /models endpoint has no
+// modality metadata (plain OpenAI-compatible APIs). It only catches well-known
+// vision families; the per-model checkbox in the gateway editor remains the
+// override for anything else.
+func modelLooksVision(id string) bool {
+	id = strings.ToLower(id)
+	for _, needle := range []string{
+		"vision", "-vl", "/vl", "gpt-4o", "gpt-4.1", "gpt-5", "o3", "o4",
+		"claude-3", "claude-4", "claude-sonnet", "claude-opus", "gemini",
+		"pixtral", "llava", "qwen2-vl", "qwen2.5-vl", "qwen3-vl", "glm-4v",
+		"glm-4.5v", "internvl", "minicpm-v", "llama-3.2-11b", "llama-3.2-90b",
+		"command-a-vision", "phi-3-vision", "phi-4-multimodal",
+	} {
+		if strings.Contains(id, needle) {
+			return true
+		}
+	}
+	return false
 }

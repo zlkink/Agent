@@ -240,3 +240,56 @@ func nums(v string) ([3]int, bool) {
 	}
 	return out, true
 }
+
+// InstallMethod says how a CLI was installed, from where its binary really is.
+// "self" means the vendor's own installer and its own update command.
+func InstallMethod(path string) string {
+	if path == "" {
+		return ""
+	}
+	real, err := filepath.EvalSymlinks(path)
+	if err != nil || real == "" {
+		real = path
+	}
+	p := strings.ToLower(filepath.ToSlash(real))
+	switch {
+	case strings.Contains(p, "/.codex/packages/standalone/"),
+		strings.Contains(p, "/.local/share/claude/versions/"),
+		strings.HasSuffix(p, "/.local/bin/claude.exe"):
+		return "self"
+	case strings.Contains(p, "/cellar/codex"), strings.Contains(p, "/cellar/claude-code"):
+		return "brew"
+	case strings.Contains(p, "/node_modules/@openai/codex/"),
+		strings.Contains(p, "/node_modules/@anthropic-ai/claude-code/"),
+		strings.HasSuffix(strings.ToLower(path), ".cmd"),
+		strings.HasSuffix(strings.ToLower(path), ".ps1"):
+		return "npm"
+	}
+	return ""
+}
+
+// UpdateCommand is how to update a CLI the way it was installed. The returned
+// command already includes the executable (npm commands go through cmd.exe on
+// Windows). Empty means RamiCore cannot tell how it was installed.
+func UpdateCommand(path, method string) []string {
+	switch method {
+	case "self":
+		return []string{path, "update"}
+	case "brew":
+		name := "codex"
+		if strings.Contains(strings.ToLower(path), "claude") {
+			name = "claude-code"
+		}
+		return []string{"brew", "upgrade", name}
+	case "npm":
+		pkg := "@openai/codex"
+		if strings.Contains(strings.ToLower(path), "claude") {
+			pkg = "@anthropic-ai/claude-code"
+		}
+		if runtime.GOOS == "windows" {
+			return []string{"cmd", "/c", "npm", "install", "-g", pkg + "@latest"}
+		}
+		return []string{"npm", "install", "-g", pkg + "@latest"}
+	}
+	return nil
+}
