@@ -3466,9 +3466,18 @@ func (h *Host) workspaceRefs() []map[string]any {
 	return out
 }
 
+const memoryGuidance = "# Long-term memory\nBefore saving or searching durable facts, inspect the available tools. If this session has a memory tool from another MCP server (for example mcp__Magpie__magpie-memory__memory_save / memory_search), use that server's memory tools, because that store is shared with the other agents. Only when no such MCP memory tool is available, use mcp__prometheus__memory_save and mcp__prometheus__memory_search. RamiCore's Memory page shows only its own store; entries written to Magpie memory stay in Magpie."
+
+func withMemoryGuidance(static string) string {
+	if strings.TrimSpace(static) == "" {
+		return memoryGuidance
+	}
+	return static + "\n\n" + memoryGuidance
+}
+
 func (h *Host) pluginContext(prompt string, s *Session) (static, turn string) {
 	if h.cfg.PluginURL == "" {
-		return h.knowledgeContext(), ""
+		return withMemoryGuidance(h.knowledgeContext()), ""
 	}
 	body, _ := json.Marshal(map[string]any{
 		"prompt": prompt, "cwd": s.Cwd, "sessionId": s.ID,
@@ -3477,11 +3486,11 @@ func (h *Host) pluginContext(prompt string, s *Session) (static, turn string) {
 	client := &http.Client{Timeout: 6 * time.Second}
 	res, err := client.Post(strings.TrimRight(h.cfg.PluginURL, "/")+"/context", "application/json", strings.NewReader(string(body)))
 	if err != nil {
-		return h.knowledgeContext(), ""
+		return withMemoryGuidance(h.knowledgeContext()), ""
 	}
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
-		return h.knowledgeContext(), ""
+		return withMemoryGuidance(h.knowledgeContext()), ""
 	}
 	var out struct {
 		Static struct {
@@ -3491,7 +3500,7 @@ func (h *Host) pluginContext(prompt string, s *Session) (static, turn string) {
 		Turn []string `json:"turn"`
 	}
 	if json.NewDecoder(res.Body).Decode(&out) != nil {
-		return h.knowledgeContext(), ""
+		return withMemoryGuidance(h.knowledgeContext()), ""
 	}
 	var b strings.Builder
 	keys := make([]string, 0, len(out.Static.Sections))
