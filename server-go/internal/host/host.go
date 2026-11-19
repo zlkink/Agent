@@ -2509,7 +2509,7 @@ func (h *Host) dispatch(method string, raw json.RawMessage) (any, error) {
 			return []any{map[string]any{
 				"provider": "codex", "id": "default", "name": "Codex (account default)",
 				"reasoning": true, "vision": true, "contextWindow": 200_000,
-				"thinkingLevels": []any{"low", "medium", "high"},
+				"thinkingLevels": []any{"minimal", "medium", "high", "xhigh", "max"},
 			}}, nil
 		case "pi":
 			return h.piModelList(), nil
@@ -4616,7 +4616,7 @@ func codexCapabilities() map[string]any {
 	return map[string]any{
 		"steering": true, "followUpQueue": true, "compaction": "manual+auto",
 		"fork": false, "treeNavigation": false,
-		"thinkingLevels": []any{"low", "medium", "high"},
+		"thinkingLevels": []any{"minimal", "medium", "high", "xhigh", "max"},
 		"images":         true, "liveToolListChange": false, "systemPromptReplace": "none",
 		"contextBreakdown": false,
 		"permissionModes":  []any{"default", "acceptEdits", "plan", "bypassPermissions", "auto"},

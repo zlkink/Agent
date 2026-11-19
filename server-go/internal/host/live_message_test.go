@@ -153,3 +153,16 @@ func TestHistoryContextKeepsRecentText(t *testing.T) {
 		t.Fatalf("history = %q", got)
 	}
 }
+
+func TestSnapshotThinkingLevel(t *testing.T) {
+	h := &Host{cfg: Config{}, sessions: map[string]*Session{}, network: map[string]any{}}
+	s := &Session{ID: "think", Runtime: "claude-code", ThinkingLevel: "high"}
+	snap := h.snapshot(s)
+	if snap["thinkingLevel"] != "high" {
+		t.Fatalf("thinkingLevel = %v", snap["thinkingLevel"])
+	}
+	levels, _ := snap["availableThinkingLevels"].([]any)
+	if len(levels) < 2 {
+		t.Fatalf("availableThinkingLevels = %#v", snap["availableThinkingLevels"])
+	}
+}
