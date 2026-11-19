@@ -183,6 +183,7 @@ type Session struct {
 	Streaming      bool
 	interrupted    bool
 	PermissionMode string
+	ThinkingLevel  string
 	sc             *sidecar.Client
 	pi             *piclient.Client
 	acpClient      *acp.Client
@@ -363,8 +364,8 @@ func (h *Host) persist() {
 		rec := store.Session{
 			ID: s.ID, Cwd: s.Cwd, Name: s.Name, Runtime: s.Runtime,
 			Created: s.Created, Modified: s.Modified, Archived: s.Archived,
-			PermissionMode: s.PermissionMode,
-			Provider:       s.Provider, Model: s.ModelID,
+			PermissionMode: s.PermissionMode, ThinkingLevel: s.ThinkingLevel,
+			Provider: s.Provider, Model: s.ModelID,
 			InputTokens: s.usage.Input, OutputTokens: s.usage.Output, ReasoningTokens: s.usage.Reasoning,
 			CacheRead: s.usage.CacheRead, CacheWrite: s.usage.CacheWrite,
 			Worktree: s.worktree,
@@ -758,15 +759,19 @@ func (h *Host) create(cwd, name, runtimeID string) *Session {
 		runtimeID = "claude-code"
 	}
 	now := time.Now()
+	h.mu.Lock()
+	thinking := str(h.settings["defaultThinking"])
+	h.mu.Unlock()
 	s := &Session{
-		ID:       newID(),
-		Cwd:      cwd,
-		Name:     name,
-		Runtime:  runtimeID,
-		Provider: h.cfg.Provider,
-		ModelID:  h.cfg.Model,
-		Created:  now,
-		Modified: now,
+		ID:            newID(),
+		Cwd:           cwd,
+		Name:          name,
+		Runtime:       runtimeID,
+		Provider:      h.cfg.Provider,
+		ModelID:       h.cfg.Model,
+		Created:       now,
+		Modified:      now,
+		ThinkingLevel: thinking,
 	}
 	h.mu.Lock()
 	h.sessions[s.ID] = s
@@ -943,6 +948,7 @@ func (h *Host) snapshot(s *Session) map[string]any {
 	steering, followUp := queueTextsLocked(s)
 	sessionProvider, sessionModel := s.Provider, s.ModelID
 	mode := s.PermissionMode
+	thinkingLevel := s.ThinkingLevel
 	if mode == "" {
 		mode = "auto"
 	}
@@ -979,8 +985,8 @@ func (h *Host) snapshot(s *Session) map[string]any {
 		"workspaceId":             workspaceID(s.Cwd),
 		"messages":                messages,
 		"model":                   map[string]any{"provider": provider, "id": modelID},
-		"thinkingLevel":           "off",
-		"availableThinkingLevels": []any{},
+		"thinkingLevel":           thinkingLevel,
+		"availableThinkingLevels": caps["thinkingLevels"],
 		"permissionMode":          mode,
 		"isStreaming":             streaming,
 		"queue":                   map[string]any{"steering": steering, "followUp": followUp},
@@ -1229,9 +1235,13 @@ func (h *Host) runPrompt(s *Session, text string, images ...[]any) {
 	}
 	s.mu.Lock()
 	sessionProvider, sessionModel := s.Provider, s.ModelID
+	thinkingLevel := s.ThinkingLevel
 	s.mu.Unlock()
 	if sessionModel != "" {
 		_ = sc.SetModel(sessionModel)
+	}
+	if thinkingLevel != "" {
+		_ = sc.SetThinking(thinkingLevel)
 	}
 	if sessionProvider == "" {
 		sessionProvider = h.cfg.Provider
@@ -1840,7 +1850,7 @@ func (h *Host) dispatch(method string, raw json.RawMessage) (any, error) {
 	switch method {
 	case "host.info":
 		return map[string]any{
-			"version": "0.30.29-ramicore", "piVersion": h.cfg.PIVersion, "protocol": protocolVersion,
+			"version": "0.30.30-ramicore", "piVersion": h.cfg.PIVersion, "protocol": protocolVersion,
 			"cwd": h.cfg.Cwd, "platform": runtime.GOOS,
 		}, nil
 
@@ -2441,7 +2451,12 @@ func (h *Host) dispatch(method string, raw json.RawMessage) (any, error) {
 
 	case "thinking.set":
 		if s := h.session(str(p["sessionId"])); s != nil {
-			h.event(s.ID, map[string]any{"type": "thinking_level_changed", "level": str(p["level"])})
+			level := str(p["level"])
+			s.mu.Lock()
+			s.ThinkingLevel = level
+			s.mu.Unlock()
+			h.event(s.ID, map[string]any{"type": "thinking_level_changed", "level": level})
+			h.persist()
 		}
 		return nil, nil
 
@@ -4612,7 +4627,7 @@ func codexCapabilities() map[string]any {
 func ccCapabilities() map[string]any {
 	return map[string]any{
 		"steering": true, "followUpQueue": true, "compaction": "manual+auto",
-		"fork": false, "treeNavigation": false, "thinkingLevels": []any{},
+		"fork": false, "treeNavigation": false, "thinkingLevels": []any{"off", "low", "medium", "high", "xhigh", "max"},
 		"images": true, "liveToolListChange": true, "systemPromptReplace": "restart",
 		"contextBreakdown": false,
 		"permissionModes":  []any{"default", "acceptEdits", "plan", "bypassPermissions", "auto"},

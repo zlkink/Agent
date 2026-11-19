@@ -272,3 +272,11 @@ func (c *Client) Drain() {
 		}
 	}
 }
+
+// SetThinking selects the model's thinking budget for subsequent prompts.
+// Best effort: older sidecars ignore the control message.
+func (c *Client) SetThinking(level string) error {
+	line, _ := json.Marshal(map[string]any{"method": "set_thinking", "params": map[string]any{"level": level}})
+	_, err := c.stdin.Write(append(line, '\n'))
+	return err
+}

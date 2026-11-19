@@ -20,6 +20,7 @@ type Session struct {
 	Modified        time.Time        `json:"modified"`
 	Archived        bool             `json:"archived"`
 	PermissionMode  string           `json:"permissionMode,omitempty"`
+	ThinkingLevel   string           `json:"thinkingLevel,omitempty"`
 	Provider        string           `json:"provider,omitempty"`
 	Model           string           `json:"model,omitempty"`
 	InputTokens     int              `json:"inputTokens,omitempty"`

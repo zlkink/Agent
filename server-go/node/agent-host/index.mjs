@@ -78,6 +78,10 @@ try {
 
 let q = null;
 let pendingModel = '';
+let thinkingLevel = process.env.PROMETHEUS_THINKING_LEVEL || '';
+let pendingThinking = '';
+let activeThinking = thinkingLevel;
+let restartForThinking = false;
 let nativeSessionId = process.env.PROMETHEUS_RESUME_SESSION || '';
 let activeModel = model;
 let restartForModel = false;
@@ -156,6 +160,7 @@ function baseEnv(targetModel) {
 
 function restartQuery() {
   restartForModel = false;
+  restartForThinking = false;
   const old = q;
   q = null;
   // The old input generator may be parked on this resolver; drop it so the
@@ -171,6 +176,7 @@ function restartQuery() {
 function ensureQuery() {
   if (q) return;
   const useModel = pendingModel || model;
+  const useThinking = pendingThinking || thinkingLevel;
   const options = {
     cwd,
     includePartialMessages: true,
@@ -203,6 +209,10 @@ function ensureQuery() {
     stderr: (data) => log(data),
   };
   if (useModel) options.model = useModel;
+  if (useThinking) {
+    const budgets = { minimal: 2048, low: 4096, medium: 8192, high: 16384, xhigh: 32000, max: 64000 };
+    options.thinking = useThinking === 'off' ? { type: 'disabled' } : { type: 'enabled', budgetTokens: budgets[useThinking] || 8192 };
+  }
   // Changing models on a running gateway query makes the CLI validate the id
   // against the API, which rejects gateway-prefixed ids ("Couldn't confirm
   // model ... with the API") and silently leaves the previous model in place.
@@ -214,6 +224,9 @@ function ensureQuery() {
   const instance = query({ prompt: input(), options });
   q = instance;
   activeModel = useModel;
+  activeThinking = useThinking;
+  thinkingLevel = useThinking;
+  pendingThinking = '';
   (async () => {
     try {
       for await (const msg of instance) await handle(msg);
@@ -339,7 +352,7 @@ function onPrompt(text, context, images = []) {
   turnContext = context || '';
   sawTextDelta = false;
   seenTools.clear();
-  if (restartForModel && q) restartQuery();
+  if ((restartForModel || restartForThinking) && q) restartQuery();
   ensureQuery();
   const parts = [];
   if (text) parts.push({ type: 'text', text });
@@ -418,6 +431,13 @@ rl.on('line', (line) => {
         restartForModel = true;
         if (!busy) restartQuery();
       }
+    }
+  } else if (msg.method === 'set_thinking') {
+    const level = String(msg.params?.level ?? '');
+    if (level && level !== activeThinking) {
+      pendingThinking = level;
+      restartForThinking = true;
+      if (!busy) restartQuery();
     }
   } else if (msg.method === 'abort') {
     q?.interrupt?.().catch(() => {});

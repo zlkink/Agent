@@ -62,9 +62,17 @@ func (h *Host) runCodexPrompt(s *Session, text string) {
 	}
 	s.mu.Lock()
 	modelID := s.ModelID
+	thinking := s.ThinkingLevel
 	s.mu.Unlock()
 	if modelID != "" && modelID != "default" {
 		args = append(args, "-m", modelID)
+	}
+	if thinking != "" {
+		effort := thinking
+		if effort == "off" {
+			effort = "minimal"
+		}
+		args = append(args, "-c", "model_reasoning_effort="+effort)
 	}
 	busToken := ""
 	if h.bus != nil {
