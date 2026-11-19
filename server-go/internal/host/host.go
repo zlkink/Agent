@@ -181,6 +181,7 @@ type Session struct {
 	Modified       time.Time
 	Archived       bool
 	Streaming      bool
+	interrupted    bool
 	PermissionMode string
 	sc             *sidecar.Client
 	pi             *piclient.Client
@@ -826,6 +827,8 @@ func (s *Session) clearLiveMessage() {
 
 func (s *Session) closeClient() {
 	s.mu.Lock()
+	s.interrupted = true
+	s.continuation = nil
 	sc := s.sc
 	pc := s.pi
 	ac := s.acpClient
@@ -1055,17 +1058,19 @@ func (h *Host) endRun(s *Session) {
 	s.liveMessage = nil
 	s.Modified = time.Now()
 	var next *queuedPrompt
-	if s.continuation != nil {
-		q := *s.continuation
-		s.continuation = nil
-		next = &q
-	} else if len(s.steerQueue) > 0 {
+	// A message the user queued or inserted while the turn ran always wins over
+	// an automatic continuation.
+	if len(s.steerQueue) > 0 {
 		q := s.steerQueue[0]
 		s.steerQueue = s.steerQueue[1:]
 		next = &q
 	} else if len(s.followUps) > 0 {
 		q := s.followUps[0]
 		s.followUps = s.followUps[1:]
+		next = &q
+	} else if s.continuation != nil {
+		q := *s.continuation
+		s.continuation = nil
 		next = &q
 	}
 	s.mu.Unlock()
@@ -1170,6 +1175,7 @@ func (h *Host) runPrompt(s *Session, text string, images ...[]any) {
 		return
 	}
 	s.Streaming = true
+	s.interrupted = false
 	runtimeID := s.Runtime
 	sc := s.sc
 	s.mu.Unlock()
@@ -1526,7 +1532,9 @@ func (h *Host) runPrompt(s *Session, text string, images ...[]any) {
 	// Queue one continuation before the user's queued prompts.
 	if err == nil && needsContinuation(content) {
 		s.mu.Lock()
-		if s.autoContinueLeft > 0 {
+		// An interrupt, a forced steer or any queued user message means the user
+		// is taking over: never inject an automatic continuation on top.
+		if s.autoContinueLeft > 0 && !s.interrupted && len(s.steerQueue) == 0 && len(s.followUps) == 0 {
 			s.autoContinueLeft--
 			s.continuation = &queuedPrompt{Text: autoContinuePrompt}
 		}
@@ -1832,7 +1840,7 @@ func (h *Host) dispatch(method string, raw json.RawMessage) (any, error) {
 	switch method {
 	case "host.info":
 		return map[string]any{
-			"version": "0.30.28-ramicore", "piVersion": h.cfg.PIVersion, "protocol": protocolVersion,
+			"version": "0.30.29-ramicore", "piVersion": h.cfg.PIVersion, "protocol": protocolVersion,
 			"cwd": h.cfg.Cwd, "platform": runtime.GOOS,
 		}, nil
 
