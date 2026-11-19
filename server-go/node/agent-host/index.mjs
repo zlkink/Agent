@@ -40,7 +40,7 @@ const gateway = process.env.PROMETHEUS_GATEWAY === '1';
 const executable = process.env.CLAUDE_EXECUTABLE || '';
 const READ_TOOLS = ['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch'];
 const allowWrite = process.env.PROMETHEUS_ALLOW_WRITE === '1';
-const TOOLS = allowWrite ? [...READ_TOOLS, 'Bash', 'Edit', 'MultiEdit', 'Write'] : READ_TOOLS;
+const TOOLS = allowWrite ? [...READ_TOOLS, 'ToolSearch', 'Bash', 'Edit', 'MultiEdit', 'Write'] : [...READ_TOOLS, 'ToolSearch'];
 const DISALLOWED = allowWrite
   ? ['Task', 'Agent', 'ExitPlanMode', 'NotebookEdit']
   : ['Bash', 'Edit', 'MultiEdit', 'Write', 'NotebookEdit', 'Task', 'Agent', 'ExitPlanMode'];
@@ -50,7 +50,7 @@ const staticContext = process.env.PROMETHEUS_STATIC_CONTEXT || '';
 let turnContext = '';
 const mcpServers = {};
 if (mcpUrl) {
-  mcpServers.prometheus = {
+  mcpServers.ramicore = {
     type: 'http',
     url: mcpUrl,
     headers: { Authorization: `Bearer ${mcpToken}` },
@@ -70,7 +70,13 @@ const expandMcpEnv = (value) => {
 try {
   const extra = JSON.parse(process.env.PROMETHEUS_MCP_SERVERS || '{}');
   for (const [name, cfg] of Object.entries(extra)) {
-    if (!mcpServers[name]) mcpServers[name] = expandMcpEnv(cfg);
+    if (!mcpServers[name]) {
+      const loaded = expandMcpEnv(cfg);
+      // Magpie's MCP hub lists its tools dynamically; eager loading makes them
+      // visible in the first turn instead of waiting for ToolSearch.
+      if (/magpie/i.test(name)) loaded.alwaysLoad = true;
+      mcpServers[name] = loaded;
+    }
   }
 } catch (err) {
   log(`ignoring invalid PROMETHEUS_MCP_SERVERS: ${err?.message || err}`);
@@ -190,6 +196,7 @@ function ensureQuery() {
       preset: 'claude_code',
       append:
         'You are running inside RamiCore.' +
+        '\nMCP hub tools may arrive deferred; if a tool is missing from your list, call ToolSearch with select:<name> before using it.' +
         (staticContext ? `\n\n${staticContext}` : ''),
     },
     hooks: {

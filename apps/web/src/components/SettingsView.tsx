@@ -126,6 +126,17 @@ const M = defineMessages({
 		autoContinue: "空收尾自动续跑",
 		autoContinueHint: "一轮结束时只有工具调用或“我先确认…”这类过程说明、没有最终回答时，自动追加一次“基于已有结果直接回答”，最多 1–2 次，避免死循环。0 表示关闭。",
 		times: "次",
+		webSearch: "网页搜索",
+		webSearchProvider: "搜索服务",
+		webSearchHint: "Agent 通过 web_search 工具联网搜索。DuckDuckGo 无需 Key；Tavily/Brave 需要 API Key；SearXNG 需要实例地址。",
+		webSearchKey: "API Key",
+		webSearchBase: "实例地址",
+		webSearchBaseHint: "SearXNG 的根地址，例如 http://127.0.0.1:8888",
+		webSearchCount: "每次结果数",
+		searchDuck: "DuckDuckGo（免 Key）",
+		searchTavily: "Tavily",
+		searchBrave: "Brave Search",
+		searchSearxng: "SearXNG",
 		days: "天",
 		chatWidth: "对话宽度",
 		chatWidthHint: "也可以在对话页面里拖动内容两侧的边缘调整，双击边缘恢复自适应。",
@@ -249,6 +260,17 @@ const M = defineMessages({
 		autoContinue: "Continue empty turns",
 		autoContinueHint: "When a turn ends after tool calls with only a progress line and no final answer, asks once for the answer based on the result. 0 disables it.",
 		times: "×",
+		webSearch: "Web search",
+		webSearchProvider: "Search service",
+		webSearchHint: "Agents search the web with the web_search tool. DuckDuckGo needs no key; Tavily/Brave need an API key; SearXNG needs an instance URL.",
+		webSearchKey: "API key",
+		webSearchBase: "Instance URL",
+		webSearchBaseHint: "SearXNG root URL, e.g. http://127.0.0.1:8888",
+		webSearchCount: "Results per search",
+		searchDuck: "DuckDuckGo (no key)",
+		searchTavily: "Tavily",
+		searchBrave: "Brave Search",
+		searchSearxng: "SearXNG",
 		days: "days",
 		chatWidth: "Chat width",
 		chatWidthHint: "You can also drag the edges beside the chat column; double-click an edge to go back to automatic.",
@@ -579,6 +601,51 @@ function RecycleDaysRow() {	const t = useT(M);
 	);
 }
 
+function WebSearchRows() {
+	const t = useT(M);
+	const host = useStore((s) => s.hostSettings);
+	const provider = host?.webSearchProvider ?? "duckduckgo";
+	const [key, setKey] = useState<string | null>(null);
+	const [base, setBase] = useState<string | null>(null);
+	const field = "w-full rounded-md border border-ink-700 bg-transparent px-2 py-1 text-sm text-ink-200";
+	return (
+		<>
+			<Row label={t("webSearchProvider")} hint={t("webSearchHint")}>
+				<Select className="w-60" value={provider} onChange={(e) => void updateHostSettings({ webSearchProvider: e.target.value as "duckduckgo" | "tavily" | "brave" | "searxng" })}>
+					<option value="duckduckgo">{t("searchDuck")}</option>
+					<option value="tavily">{t("searchTavily")}</option>
+					<option value="brave">{t("searchBrave")}</option>
+					<option value="searxng">{t("searchSearxng")}</option>
+				</Select>
+			</Row>
+			{(provider === "tavily" || provider === "brave") && (
+				<Row label={t("webSearchKey")}>
+					<input
+						type="password"
+						className={field}
+						placeholder="..."
+						value={key ?? host?.webSearchApiKey ?? ""}
+						onChange={(e) => setKey(e.target.value)}
+						onBlur={() => { if (key !== null) { void updateHostSettings({ webSearchApiKey: key }); setKey(null); } }}
+					/>
+				</Row>
+			)}
+			{provider === "searxng" && (
+				<Row label={t("webSearchBase")} hint={t("webSearchBaseHint")}>
+					<input
+						className={field}
+						placeholder="http://127.0.0.1:8888"
+						value={base ?? host?.webSearchBaseUrl ?? ""}
+						onChange={(e) => setBase(e.target.value)}
+						onBlur={() => { if (base !== null) { void updateHostSettings({ webSearchBaseUrl: base }); setBase(null); } }}
+					/>
+				</Row>
+			)}
+			<CountRow label={t("webSearchCount")} hint="" value={host?.webSearchMaxResults ?? 5} max={10} onCommit={(webSearchMaxResults) => void updateHostSettings({ webSearchMaxResults })} />
+		</>
+	);
+}
+
 /** Small integer setting with the same commit-on-blur behaviour as the recycling row. */
 function CountRow({ label, hint, value, max, onCommit }: { label: string; hint: string; value: number; max: number; onCommit: (n: number) => void }) {
 	const t = useT(M);
@@ -839,6 +906,10 @@ function ChatSettings() {
 			<PageHeader title={t("chatTitle")} subtitle={t("chatSubtitle")} />
 			<div className="min-h-0 flex-1 overflow-y-auto">
 				<div className="max-w-3xl space-y-8 p-4 md:p-8">
+					<Section title={t("webSearch")}>
+						<WebSearchRows />
+					</Section>
+
 					<Section title={t("session")}>
 						<Row label={t("autoCompact")} hint={t("autoCompactHint")}>
 							<Toggle checked={host?.autoCompaction ?? false} disabled={!host} onChange={(v) => void updateHostSettings({ autoCompaction: v })} />

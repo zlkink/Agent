@@ -107,11 +107,15 @@ func (h *Host) ensureAcp(s *Session) (*acp.Client, string, bool, error) {
 	if h.cfg.ACPEntry == "" {
 		return nil, "", false, fmt.Errorf("ACP adapter is not installed")
 	}
+	acpEnv := envMap(h.subagentEnv())
+	for k, v := range pythonEnv(s.Cwd) {
+		acpEnv[k] = v
+	}
 	c, err := acp.Start(acp.StartOptions{
 		Node:  h.cfg.ACPNode,
 		Entry: h.cfg.ACPEntry,
 		Dir:   s.Cwd,
-		Env:   envMap(h.subagentEnv()),
+		Env:   acpEnv,
 		OnNotify: func(method string, params json.RawMessage) {
 			h.acpNotify(s, method, params)
 		},
@@ -140,7 +144,7 @@ func (h *Host) ensureAcp(s *Session) (*acp.Client, string, bool, error) {
 			"fs":       map[string]any{"readTextFile": false, "writeTextFile": false},
 			"terminal": false,
 		},
-		"clientInfo": map[string]any{"name": "prometheus", "version": "1"},
+		"clientInfo": map[string]any{"name": "ramicore", "version": "1"},
 	}); err != nil {
 		c.Close()
 		return nil, "", false, fmt.Errorf("ACP initialize: %w", err)
@@ -149,7 +153,7 @@ func (h *Host) ensureAcp(s *Session) (*acp.Client, string, bool, error) {
 	if h.bus != nil {
 		url, token := h.bus.Open(s.ID, s.Cwd)
 		mcp = append(mcp, map[string]any{
-			"type": "http", "name": "prometheus", "url": url,
+			"type": "http", "name": "ramicore", "url": url,
 			"headers": []any{map[string]any{"name": "Authorization", "value": "Bearer " + token}},
 		})
 	}

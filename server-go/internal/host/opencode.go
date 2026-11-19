@@ -118,7 +118,7 @@ func (h *Host) ensureOpenCode(s *Session) (*opencode.Client, string, bool, error
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	c, err := opencode.Start(ctx, h.cfg.OpenCodePath, s.Cwd)
+	c, err := opencode.Start(ctx, h.cfg.OpenCodePath, s.Cwd, pythonEnv(s.Cwd))
 	if err != nil {
 		return nil, "", false, err
 	}

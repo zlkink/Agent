@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"runtime"
 	"strconv"
@@ -78,10 +77,10 @@ func (h *Host) runCodexPrompt(s *Session, text string) {
 	if h.bus != nil {
 		url, token := h.bus.Open(s.ID, s.Cwd)
 		busToken = token
-		args = append(args, "-c", `mcp_servers.prometheus.url=`+strconv.Quote(url), "-c", `mcp_servers.prometheus.bearer_token_env_var="RAMICORE_MCP_TOKEN"`)
+		args = append(args, "-c", `mcp_servers.ramicore.url=`+strconv.Quote(url), "-c", `mcp_servers.ramicore.bearer_token_env_var="RAMICORE_MCP_TOKEN"`)
 		// Subagent reviews can run for minutes; Codex's MCP tool timeout defaults
 		// are much shorter and would fail the call while the host still works.
-		args = append(args, "-c", `mcp_servers.prometheus.tool_timeout_sec=7200`, "-c", `mcp_servers.prometheus.startup_timeout_sec=60`)
+		args = append(args, "-c", `mcp_servers.ramicore.tool_timeout_sec=7200`, "-c", `mcp_servers.ramicore.startup_timeout_sec=60`)
 	}
 	for name, cfg := range mcpconfig.Load(h.cfg.DataDir) {
 		key := `mcp_servers.` + strconv.Quote(name)
@@ -107,8 +106,9 @@ func (h *Host) runCodexPrompt(s *Session, text string) {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, h.cfg.Codex.Path, args...)
 	cmd.Dir = s.Cwd
+	cmd.Env = envWith(pythonEnv(s.Cwd))
 	if busToken != "" {
-		cmd.Env = append(os.Environ(), "RAMICORE_MCP_TOKEN="+busToken)
+		cmd.Env = append(cmd.Env, "RAMICORE_MCP_TOKEN="+busToken)
 	}
 	staticCtx, turnCtx := h.pluginContext(text, s)
 	cmd.Stdin = strings.NewReader(codexPromptWithHistory(history, withContext(staticCtx, turnCtx, text)))

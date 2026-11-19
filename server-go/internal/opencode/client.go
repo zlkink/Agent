@@ -32,7 +32,7 @@ type Client struct {
 	once   sync.Once
 }
 
-func Start(ctx context.Context, bin, cwd string) (*Client, error) {
+func Start(ctx context.Context, bin, cwd string, extra ...map[string]string) (*Client, error) {
 	if bin == "" {
 		return nil, errors.New("opencode executable is empty")
 	}
@@ -45,7 +45,14 @@ func Start(ctx context.Context, bin, cwd string) (*Client, error) {
 	password := base64.RawURLEncoding.EncodeToString(raw)
 	cmd := exec.Command(bin, "serve", "--port", strconv.Itoa(port), "--hostname", "127.0.0.1")
 	cmd.Dir = cwd
-	cmd.Env = append(os.Environ(), "OPENCODE_SERVER_PASSWORD="+password)
+	var env []string
+	for _, m := range extra {
+		for k, v := range m {
+			env = append(env, k+"="+v)
+		}
+	}
+	cmd.Env = append(os.Environ(), env...)
+	cmd.Env = append(cmd.Env, "OPENCODE_SERVER_PASSWORD="+password)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, err

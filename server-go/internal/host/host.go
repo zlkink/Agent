@@ -247,18 +247,20 @@ func New(cfg Config) *Host {
 		network:     map[string]any{"lan": false, "port": 9528, "allowedHosts": []any{}},
 	}
 	h.settings = map[string]any{
-		"autoCompaction":    true,
-		"workspaceRoot":     cfg.Cwd,
-		"defaultAgent":      "claude-code",
-		"defaultPermission": "auto",
-		"defaultThinking":   "",
-		"goalTurns":         30,
-		"compactPercent":    80,
-		"worktreeMode":      "off",
-		"worktreeDefault":   false,
-		"worktreeStrategy":  "squash",
-		"worktreeAutoPull":  false,
-		"recycleDays":       0,
+		"autoCompaction":      true,
+		"workspaceRoot":       cfg.Cwd,
+		"defaultAgent":        "claude-code",
+		"defaultPermission":   "auto",
+		"defaultThinking":     "",
+		"goalTurns":           30,
+		"compactPercent":      80,
+		"worktreeMode":        "off",
+		"worktreeDefault":     false,
+		"worktreeStrategy":    "squash",
+		"worktreeAutoPull":    false,
+		"recycleDays":         0,
+		"webSearchProvider":   "duckduckgo",
+		"webSearchMaxResults": 5,
 	}
 	if bus, err := toolbus.New(filepath.Join(cfg.DataDir, "toolbus"), cfg.PluginURL); err == nil {
 		h.bus = bus
@@ -267,6 +269,7 @@ func New(cfg Config) *Host {
 		bus.SetKnowledge(func(ctx context.Context, query string, topK int) ([]any, error) {
 			return h.searchKnowledge(query, topK)
 		})
+		bus.SetSearch(h.webSearch)
 	}
 	if st, err := h.store.Load(); err == nil {
 		for k, v := range st.Settings {
@@ -1850,7 +1853,7 @@ func (h *Host) dispatch(method string, raw json.RawMessage) (any, error) {
 	switch method {
 	case "host.info":
 		return map[string]any{
-			"version": "0.30.31-ramicore", "piVersion": h.cfg.PIVersion, "protocol": protocolVersion,
+			"version": "0.30.32-ramicore", "piVersion": h.cfg.PIVersion, "protocol": protocolVersion,
 			"cwd": h.cfg.Cwd, "platform": runtime.GOOS,
 		}, nil
 
@@ -3509,7 +3512,7 @@ func (h *Host) workspaceRefs() []map[string]any {
 	return out
 }
 
-const memoryGuidance = "# Long-term memory\nBefore saving or searching durable facts, inspect the available tools. If this session has a memory tool from another MCP server (for example mcp__Magpie__magpie-memory__memory_save / memory_search), use that server's memory tools, because that store is shared with the other agents. Only when no such MCP memory tool is available, use mcp__prometheus__memory_save and mcp__prometheus__memory_search. RamiCore's Memory page shows only its own store; entries written to Magpie memory stay in Magpie."
+const memoryGuidance = "# Long-term memory\nBefore saving or searching durable facts, inspect the available tools. If this session has a memory tool from another MCP server (for example mcp__Magpie__magpie-memory__memory_save / memory_search), use that server's memory tools, because that store is shared with the other agents. Only when no such MCP memory tool is available, use mcp__ramicore__memory_save and mcp__ramicore__memory_search. RamiCore's Memory page shows only its own store; entries written to Magpie memory stay in Magpie."
 
 func withMemoryGuidance(static string) string {
 	if strings.TrimSpace(static) == "" {

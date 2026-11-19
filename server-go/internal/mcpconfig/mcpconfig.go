@@ -34,7 +34,7 @@ func readInto(out map[string]Server, path, field string) {
 		return
 	}
 	for name, spec := range entries {
-		if name == "prometheus" || out[name] != nil || spec["enabled"] == false {
+		if (name == "prometheus" || name == "ramicore") || out[name] != nil || spec["enabled"] == false {
 			continue
 		}
 		if cfg := Normalize(spec); cfg != nil {

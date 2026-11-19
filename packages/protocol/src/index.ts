@@ -487,6 +487,11 @@ export interface HostSettings {
 	worktreeAutoPull?: boolean;
 	/** Chats idle for more than this many days are recycled out of the session list; 0 or unset keeps all. */
 	recycleDays?: number;
+	/** Web search provider: duckduckgo (no key), tavily, brave or searxng. */
+	webSearchProvider?: "duckduckgo" | "tavily" | "brave" | "searxng";
+	webSearchApiKey?: string;
+	webSearchBaseUrl?: string;
+	webSearchMaxResults?: number;
 	/** Automatic retries for transient provider errors (rate limit, 5xx, network); unset means 3, 0 disables. */
 	retryAttempts?: number;
 	/** Automatic continuations when a turn stops after tool calls without a final answer; unset means 0. */

@@ -30,6 +30,7 @@ type Server struct {
 	subagent  func(ctx context.Context, cwd, agent, task string) (string, error)
 	ask       func(ctx context.Context, sessionID, cwd, question string, options []string) (string, error)
 	knowledge func(ctx context.Context, query string, topK int) ([]any, error)
+	search    func(ctx context.Context, query string, count int) ([]any, error)
 }
 
 // SetSubagent installs the runner behind the `subagent` tool.
@@ -43,6 +44,13 @@ func (s *Server) SetSubagent(fn func(ctx context.Context, cwd, agent, task strin
 func (s *Server) SetKnowledge(fn func(ctx context.Context, query string, topK int) ([]any, error)) {
 	s.mu.Lock()
 	s.knowledge = fn
+	s.mu.Unlock()
+}
+
+// SetSearch installs the web search runner behind `web_search`.
+func (s *Server) SetSearch(fn func(ctx context.Context, query string, count int) ([]any, error)) {
+	s.mu.Lock()
+	s.search = fn
 	s.mu.Unlock()
 }
 
@@ -186,7 +194,7 @@ func (s *Server) dispatch(sessionID string, req *rpcRequest) (any, *rpcError) {
 		return map[string]any{
 			"protocolVersion": "2025-06-18",
 			"capabilities":    map[string]any{"tools": map[string]any{"listChanged": false}},
-			"serverInfo":      map[string]any{"name": "prometheus-go", "version": "0.1.0"},
+			"serverInfo":      map[string]any{"name": "ramicore", "version": "0.1.0"},
 		}, nil
 	case "ping":
 		return map[string]any{}, nil
@@ -249,6 +257,18 @@ func localToolDefinitions() []any {
 				"properties": map[string]any{
 					"query": map[string]any{"type": "string"},
 					"limit": map[string]any{"type": "number"},
+				},
+				"required": []any{"query"},
+			},
+		},
+		map[string]any{
+			"name":        "web_search",
+			"description": "Search the public web for current information. Returns result titles, URLs and snippets; use WebFetch or the browser to read a result in full.",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"query": map[string]any{"type": "string", "description": "What to search for"},
+					"count": map[string]any{"type": "number", "description": "How many results, 1-10"},
 				},
 				"required": []any{"query"},
 			},
@@ -502,6 +522,36 @@ func (s *Server) call(sessionID, name string, args map[string]any) (any, *rpcErr
 			}
 		}
 		return toolResult(fmt.Sprintf("Found %d memories", len(hits)), map[string]any{"hits": hits}), nil
+
+	case "web_search":
+		q := strings.TrimSpace(str(args["query"]))
+		if q == "" {
+			return nil, &rpcError{Code: -32602, Message: "query is required"}
+		}
+		count := 5
+		if n, ok := args["count"].(float64); ok && n > 0 {
+			count = int(n)
+		}
+		s.mu.Lock()
+		search := s.search
+		s.mu.Unlock()
+		if search == nil {
+			return nil, &rpcError{Code: -32603, Message: "web search is not configured"}
+		}
+		hits, err := search(context.Background(), q, count)
+		if err != nil {
+			return nil, &rpcError{Code: -32603, Message: err.Error()}
+		}
+		var b strings.Builder
+		fmt.Fprintf(&b, "Web search: %s\n\n", q)
+		for i, raw := range hits {
+			hit, _ := raw.(map[string]any)
+			fmt.Fprintf(&b, "%d. %s\n%s\n%s\n\n", i+1, str(hit["title"]), str(hit["url"]), str(hit["snippet"]))
+		}
+		if len(hits) == 0 {
+			b.WriteString("No results.\n")
+		}
+		return toolResult(strings.TrimSpace(b.String()), map[string]any{"hits": hits}), nil
 
 	case "knowledge_search":
 		q := strings.TrimSpace(str(args["query"]))

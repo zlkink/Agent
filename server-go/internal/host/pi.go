@@ -48,6 +48,9 @@ func (h *Host) runPiPrompt(s *Session, text string) {
 			_ = writePIModels(agentDir, h.cfg.RelayURL, h.cfg.RelayToken, h.cfg.Gateway, models)
 			args = append(args, "--provider", h.cfg.Gateway, "--model", modelID)
 		}
+		for k, v := range pythonEnv(s.Cwd) {
+			env[k] = v
+		}
 		var err error
 		c, err = piclient.Start(piclient.StartOptions{
 			Node:        h.cfg.PINode,
@@ -160,7 +163,7 @@ func firstNum(m map[string]any, keys ...string) int {
 func writePIMcp(agentDir, busURL, busToken string, extra map[string]mcpconfig.Server) error {
 	servers := map[string]any{}
 	if busURL != "" {
-		servers["prometheus"] = map[string]any{
+		servers["ramicore"] = map[string]any{
 			"url":         busURL,
 			"headers":     map[string]any{"Authorization": "Bearer " + busToken},
 			"description": "RamiCore tools: todo, memory and open_file",
