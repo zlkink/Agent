@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="zh-CN" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#1c1814" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>RamiCore</title>
+    <script>
+      // Shows startup errors on screen: in an old WebView a script failure otherwise leaves only the dark window background.
+      (function () {
+        var overlay = null;
+        function rootHasContent() {
+          var r = document.getElementById("root");
+          return !!(r && r.childNodes.length);
+        }
+        function clear() {
+          if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
+          overlay = null;
+        }
+        function show(msg) {
+          // The interface is up: a late error is not a startup failure and must not cover it.
+          if (rootHasContent()) { clear(); return; }
+          if (overlay) return;
+          overlay = document.createElement("pre");
+          overlay.id = "boot-error";
+          overlay.style.cssText = "position:fixed;inset:0;margin:0;padding:24px;overflow:auto;white-space:pre-wrap;background:#1c1814;color:#f2c9a0;font:13px/1.5 ui-monospace,Menlo,monospace;z-index:99999";
+          overlay.textContent = ["RamiCore failed to start", msg, navigator.userAgent].join(String.fromCharCode(10, 10));
+          (document.body || document.documentElement).appendChild(overlay);
+        }
+        // Once React puts anything into #root the fallback is stale: remove it so
+        // it can never sit permanently on top of a working interface.
+        function watchRoot() {
+          var r = document.getElementById("root");
+          if (!r) return false;
+          if (rootHasContent()) clear();
+          if (typeof MutationObserver !== "undefined") {
+            new MutationObserver(function () { if (rootHasContent()) clear(); }).observe(r, { childList: true });
+          }
+          return true;
+        }
+        // Browser extensions inject scripts into every page. Their failures
+        // (typically a wallet fighting over window.ethereum) are not RamiCore's
+        // startup errors and must not replace the app with an error page.
+        function foreignSource(src) {
+          return /^(chrome|moz|safari-web|ms-browser)-extension:\/\//.test(src || "");
+        }
+        function foreign(e) {
+          var src = e.filename || "";
+          if (foreignSource(src)) return true;
+          if (src && location.origin && src.indexOf(location.origin) !== 0) return true;
+          return /Cannot redefine property: ethereum/.test(e.message || "");
+        }
+        function foreignReason(reason) {
+          var text = reason && (reason.stack || reason.message) || String(reason || "");
+          return foreignSource(text) || /(chrome|moz|safari-web|ms-browser)-extension:/.test(text) || /Cannot redefine property: ethereum/.test(text);
+        }
+        watchRoot();
+        window.addEventListener("DOMContentLoaded", watchRoot);
+        // The stylesheet is wrapped in cascade layers (Safari 15.4+); without them every style is dropped and the UI is unusable.
+        window.addEventListener("DOMContentLoaded", function () {
+          if (typeof CSSLayerBlockRule !== "undefined") return;
+          var d = document.createElement("div");
+          d.style.cssText = "position:fixed;left:0;right:0;top:0;padding:16px 20px;background:#7a2e0e;color:#fff;font:14px/1.5 -apple-system,Helvetica,sans-serif;z-index:99999";
+          d.textContent = "This system's web engine is too old to display RamiCore correctly (needs Safari 15.4 or newer). On macOS 10.15 open Apple menu > About This Mac > Software Update and install the latest Safari update, then restart RamiCore. Engine: " + navigator.userAgent;
+          document.body.appendChild(d);
+        });
+        window.addEventListener("error", function (e) {
+          if (foreign(e)) return;
+          show((e.message || "error") + (e.filename ? String.fromCharCode(10) + e.filename + ":" + e.lineno + ":" + e.colno : ""));
+        });
+        window.addEventListener("unhandledrejection", function (e) {
+          if (foreignReason(e.reason)) return;
+          show("Unhandled rejection: " + (e.reason && (e.reason.stack || e.reason.message) || e.reason));
+        });
+        setTimeout(function () { var r = document.getElementById("root"); if (r && !r.childNodes.length) show("The interface did not render within 8 seconds."); }, 8000);
+      })();
+    </script>
+    <style>html,body{background:#1c1814}#splash{--sp-a:#e0420f;--sp-b:#ff5a1f;--sp-c:#ffa055;--sp-d:#ffc061;--sp-bg:#1c1814;--sp-fg:#e9e0d5;--sp-glow:255 90 31;z-index:9998;background:radial-gradient(600px 380px at 50% 58%, rgb(var(--sp-glow) / .16), transparent 70%), var(--sp-bg);place-items:center;transition:opacity .52s,visibility .52s;display:grid;position:fixed;inset:0;overflow:hidden}#splash.sp-out{opacity:0;visibility:hidden;pointer-events:none}#splash .sp-stage{flex-direction:column;align-items:center;gap:22px;transition:transform .52s cubic-bezier(.4,0,.2,1),filter .52s;display:flex;position:relative}#splash.sp-out .sp-stage{filter:blur(6px);transform:scale(1.12)translateY(-6px)}#splash .sp-mark{width:104px;height:104px;position:relative}#splash .sp-halo{background:radial-gradient(circle, rgb(var(--sp-glow) / .42), rgb(var(--sp-glow) / .08) 45%, transparent 68%);opacity:0;border-radius:50%;animation:1.1s cubic-bezier(.2,.8,.2,1) .55s forwards sp-halo,3s ease-in-out 1.7s infinite sp-breathe;position:absolute;inset:-60%;transform:scale(.4)}#splash svg{width:100%;height:100%;position:relative;overflow:visible}#splash .sp-outline{fill:none;stroke:url(#sp-g);stroke-width:.7px;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:1;stroke-dashoffset:1px;animation:.75s cubic-bezier(.6,0,.3,1) .25s forwards sp-draw,.4s 1s forwards sp-fadeout}#splash .sp-fill{transform-box:fill-box;transform-origin:50% 100%;opacity:0;animation:.6s cubic-bezier(.2,1.4,.4,1) .7s forwards sp-ignite,2.6s ease-in-out 1.4s infinite sp-flicker;transform:scaleY(.2)scaleX(.6)}#splash .sp-spark{transform-box:fill-box;transform-origin:50%;opacity:0;animation:.75s cubic-bezier(.3,0,.2,1) 50ms forwards sp-spark}#splash .sp-base{transform-box:fill-box;transform-origin:50%;animation:.55s cubic-bezier(.2,.8,.2,1) .95s forwards sp-base;transform:scaleX(0)}#splash .sp-word{color:var(--sp-fg);letter-spacing:.7em;opacity:0;margin-right:-.7em;font:600 20px/1 Bricolage Grotesque Variable,Segoe UI,system-ui,sans-serif;animation:.8s cubic-bezier(.2,.8,.2,1) 1s forwards sp-word}#splash .sp-bar{background:rgb(var(--sp-glow) / .12);opacity:0;border-radius:2px;width:120px;height:2px;animation:.4s 1.5s forwards sp-fadein;overflow:hidden}#splash .sp-bar:after{content:"";background:linear-gradient(90deg, transparent, var(--sp-c), transparent);border-radius:2px;width:40%;height:100%;animation:1.3s ease-in-out infinite sp-scan;display:block}#splash .sp-s0{stop-color:var(--sp-b)}#splash .sp-s1{stop-color:var(--sp-d)}#splash .sp-spark{fill:var(--sp-d)}#splash .sp-base{fill:var(--sp-b)}#splash .sp-hint{white-space:nowrap;color:var(--sp-fg);opacity:0;font:12px/1.4 IBM Plex Sans,PingFang SC,Microsoft YaHei,system-ui,sans-serif;animation:.6s 3.5s forwards sp-hint;position:absolute;top:calc(100% + 18px);left:50%;transform:translate(-50%)}@keyframes sp-hint{to{opacity:.45}}#splash.sp-still *,#splash.sp-still :after{animation:none!important}#splash.sp-still .sp-outline{display:none}#splash.sp-still .sp-fill,#splash.sp-still .sp-word,#splash.sp-still .sp-bar,#splash.sp-still .sp-halo{opacity:1;transform:none}#splash.sp-still .sp-word{letter-spacing:.32em;margin-right:-.32em}@keyframes sp-draw{to{stroke-dashoffset:0}}@keyframes sp-fadeout{to{opacity:0}}@keyframes sp-fadein{to{opacity:1}}@keyframes sp-ignite{to{opacity:1;transform:none}}@keyframes sp-flicker{0%,to{transform:scaleY(1)skew(0)}30%{transform:scaleY(.96)skew(-1.5deg)}60%{transform:scaleY(1.03)skew(1deg)}}@keyframes sp-halo{to{opacity:1;transform:scale(1)}}@keyframes sp-breathe{0%,to{opacity:1}50%{opacity:.65}}@keyframes sp-word{to{opacity:1;letter-spacing:.32em;margin-right:-.32em}}@keyframes sp-scan{0%{transform:translate(-110%)}to{transform:translate(260%)}}@keyframes sp-float{0%{opacity:0;transform:translate(0)}15%{opacity:.9}to{opacity:0;transform:translate(var(--dx), -70vh)}}</style>
+    <script type="module" crossorigin src="/assets/index-Z2AqG-DR.js"></script>
+    <link rel="modulepreload" crossorigin href="/assets/rolldown-runtime-BCiCTKAo.js">
+    <link rel="modulepreload" crossorigin href="/assets/preload-helper-BLdHbfdN.js">
+    <link rel="modulepreload" crossorigin href="/assets/store-BnQegOp2.js">
+    <link rel="stylesheet" crossorigin href="/assets/index-BzGwQOma.css">
+  <script>try{if(window.__TAURI_INTERNALS__||location.hostname==="tauri.localhost"){document.documentElement.classList.add("tauri");if(String(navigator.platform).indexOf("Mac")>=0)document.documentElement.classList.add("tauri-mac");if(!localStorage.getItem("prometheus.mode"))localStorage.setItem("prometheus.mode","local");var pr={};try{pr=JSON.parse(localStorage.getItem("prometheus.prefs")||"{}")}catch(e){}if(pr.lang!=="zh"&&pr.lang!=="en"){pr.lang="zh";localStorage.setItem("helixagent.langInit","1");localStorage.setItem("prometheus.prefs",JSON.stringify(pr));}}}catch(e){}</script></head>
+  <body>
+    <div id="splash" aria-hidden="true">
+      <div class="sp-stage">
+        <div class="sp-mark">
+          <div class="sp-halo"></div>
+          <svg viewBox="0 0 32 32">
+            <defs>
+              <linearGradient id="sp-g" x1="0" y1="1" x2="0" y2="0"><stop class="sp-s0" offset="0" /><stop class="sp-s1" offset="1" /></linearGradient>
+            </defs>
+            <path class="sp-outline" pathLength="1" d="M7 27V5h8.4c4.7 0 7.8 2.7 7.8 6.6 0 3-1.6 5.2-4.2 6.1L25 27h-5l-4.5-8.8h-3.4V27H7Z M12.1 14.2h3.6c2.3 0 3.7-1.4 3.7-3.5s-1.4-3.4-3.7-3.4h-3.6v6.9Z" />
+            <path class="sp-fill" fill="url(#sp-g)" fill-rule="evenodd" d="M7 27V5h8.4c4.7 0 7.8 2.7 7.8 6.6 0 3-1.6 5.2-4.2 6.1L25 27h-5l-4.5-8.8h-3.4V27H7Z M12.1 14.2h3.6c2.3 0 3.7-1.4 3.7-3.5s-1.4-3.4-3.7-3.4h-3.6v6.9Z" />
+          </svg>
+        </div>
+        <div class="sp-word">RAMICORE</div>
+        <div class="sp-bar"></div>
+        <div class="sp-hint"></div>
+      </div>
+    </div>
+    <script>
+      (function () {
+        var el = document.getElementById("splash");
+        if (window.__PROMETHEUS_PANEL__) return el.remove();
+        // Desktop: the window starts hidden (WebView2 paints white while it boots); show it now that there is something to see.
+        function reveal() {
+          var t = window.__TAURI_INTERNALS__;
+          if (t && t.invoke) try { t.invoke("reveal_main_window").catch(function () {}); } catch (e) {}
+        }
+        var p = {};
+        try { p = JSON.parse(localStorage.getItem("prometheus.prefs") || "{}") || {}; } catch (e) {}
+        var zh = (p.lang || navigator.language || "").toLowerCase().indexOf("zh") === 0;
+        el.querySelector(".sp-hint").textContent = zh ? "正在启动本地服务，首次启动可能稍慢…" : "Starting the local server, the first launch can take a moment…";
+        window.__splashT0 = performance.now();
+        // Follow the saved skin and theme so the splash hands over to the app without a colour jump.
+        var skins = { ocean: ["#1f6fe0", "#2f8cff", "#7cb8ff", "#a9d0ff", "47 140 255"], forest: ["#1f9457", "#2fb36b", "#72d69c", "#a3e6be", "47 179 107"],
+          violet: ["#7444e0", "#8b5cf6", "#b89afa", "#d4c2fc", "139 92 246"], rose: ["#d92a58", "#f43f6e", "#f88aa7", "#fbb6c8", "244 63 110"] };
+        var s = skins[p.skin], st = el.style;
+        if (s) { st.setProperty("--sp-a", s[0]); st.setProperty("--sp-b", s[1]); st.setProperty("--sp-c", s[2]); st.setProperty("--sp-d", s[3]); st.setProperty("--sp-glow", s[4]); }
+        var light = p.theme === "light" || (p.theme === "system" && matchMedia("(prefers-color-scheme: light)").matches);
+        if (light) { st.setProperty("--sp-bg", "#faf8f5"); st.setProperty("--sp-fg", "#1a1613"); document.documentElement.style.background = "#faf8f5"; }
+        // Android: the status bar follows the app theme, not the phone's system theme (the two can differ).
+        try { if (window.PrometheusHost && window.PrometheusHost.theme) window.PrometheusHost.theme(!light); } catch (e) {}
+        reveal();
+        // Only the in-app switches stop it: Windows with "animation effects" off reports reduced motion on many machines.
+        if (p.motion === false || p.splash === false) return el.classList.add("sp-still");
+      })();
+    </script>
+    <div id="root"></div>
+  </body>
+</html>

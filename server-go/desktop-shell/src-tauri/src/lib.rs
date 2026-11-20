@@ -636,7 +636,12 @@ pub fn run() {
     // Single-instance must be registered first so a second launch just surfaces the hidden window.
     #[cfg(desktop)]
     let builder = builder
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| tray::show_main(app)))
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            #[cfg(target_os = "windows")]
+            tray::toggle_main(app);
+            #[cfg(not(target_os = "windows"))]
+            tray::show_main(app);
+        }))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
