@@ -3,6 +3,7 @@ import { Code, ExternalLink, FolderOpen, FolderTree, Globe, Minus, Moon, PanelLe
 import { useEffect, useRef, useState } from "react";
 import { isDesktopShell, isLoopbackHost } from "../lib/backend.ts";
 import { setPrefs, usePrefs } from "../lib/prefs.ts";
+import { isMacPlatform, togglePlatformFullscreen } from "../lib/fullscreen.ts";
 import { localizeError } from "../lib/errors.ts";
 import { defineMessages, useT } from "../lib/i18n.ts";
 import { call, NO_SUBAGENTS, pluginActive, toggleSubagentPanel, toggleWorkbenchKind, toggleWorkbenchPanel, useStore } from "../lib/store.ts";
@@ -272,12 +273,11 @@ function WindowControls() {
 	const t = useT(M);
 	// macOS' green button opens a native full-screen Space; maximize() would only
 	// fill the current screen and leaves the menu bar visible.
-	const isMac = /mac/i.test(String(navigator.platform || navigator.userAgent));
 	const act = async (op: "minimize" | "toggleMaximize" | "close") => {
 		const { getCurrentWindow } = await import("@tauri-apps/api/window");
 		const win = getCurrentWindow();
-		if (op === "toggleMaximize" && isMac) {
-			await win.setFullscreen(!(await win.isFullscreen()));
+		if (op === "toggleMaximize" && isMacPlatform()) {
+			await togglePlatformFullscreen();
 			return;
 		}
 		await win[op]();
@@ -309,15 +309,15 @@ export function TitleBar({ onToggleSidebar, bare }: { onToggleSidebar?: () => vo
 	const firstUser = session?.messages.find((m) => m.role === "user");
 	const firstText = firstUser ? (typeof firstUser.content === "string" ? firstUser.content : firstUser.content.map((c) => (c.type === "text" ? c.text : "")).join("")).replace(/^<skill name="([^"]*)"[^>]*>[\s\S]*?<\/skill>\s*/, "/skill:$1 ") : "";
 	const name = title || session?.name || summary?.name || firstText.trim() || localizeError(summary?.firstMessage ?? "") || t("newChat");
-	const isMacPlatform = /mac/i.test(String(navigator.platform || navigator.userAgent));
 	const toggleWindow = async () => {
 		if (!desktop) return;
+		// macOS: use simple full screen so closing to the tray leaves no Space behind.
+		if (isMacPlatform()) {
+			await togglePlatformFullscreen();
+			return;
+		}
 		const { getCurrentWindow } = await import("@tauri-apps/api/window");
-		const win = getCurrentWindow();
-		// Match the macOS green button: a double-click enters native full screen
-		// (its own Space) rather than zooming inside the current screen.
-		if (isMacPlatform) await win.setFullscreen(!(await win.isFullscreen()));
-		else await win.toggleMaximize();
+		await getCurrentWindow().toggleMaximize();
 	};
 
 	let heading: React.ReactNode = null;

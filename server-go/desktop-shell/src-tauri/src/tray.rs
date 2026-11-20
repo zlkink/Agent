@@ -114,6 +114,9 @@ fn show_menu(app: &AppHandle, anchor: PhysicalPosition<f64>) {
     let y = if ay > my + mh / 2 { ay - h } else { ay };
     let y = y.clamp(my, (my + mh - h).max(my));
     let _ = menu.set_position(PhysicalPosition::new(x, y));
+    // The main app may be hidden at the application level; unhide it for the menu without showing the main window.
+    #[cfg(target_os = "macos")]
+    let _ = app.show();
     let _ = menu.show();
     let _ = menu.set_focus();
     let _ = menu.emit("traymenu-open", ());
@@ -150,6 +153,9 @@ fn toggle_panel(app: &AppHandle, anchor: Option<PhysicalPosition<f64>>) {
     }
     let anchor = anchor.or(*app.state::<TrayState>().last_anchor.lock().unwrap());
     place_panel(&panel, anchor);
+    // The main app may be hidden at the application level; unhide it for the panel without showing the main window.
+    #[cfg(target_os = "macos")]
+    let _ = app.show();
     let _ = panel.show();
     let _ = panel.set_focus();
 }
@@ -213,15 +219,55 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
-/// Hides the main window to the menu bar. On macOS hiding the window alone leaves its full-screen Space behind as a
-/// black screen, so the whole application is hidden instead (like other Mac apps) and reopening restores that Space.
+/// Hides the main window to the menu bar. Pre-Lion simple full-screen on macOS has no Space, so the app can be
+/// hidden directly. A native full-screen window (or one left over from an older build) must leave its Space first;
+/// hiding it as-is leaves a black Space that survives in Mission Control.
 fn hide_main_to_tray(app: &AppHandle) {
     #[cfg(target_os = "macos")]
     {
+        if let Some(window) = app.get_webview_window(MAIN) {
+            if window.is_fullscreen().unwrap_or(false) {
+                let _ = window.set_fullscreen(false);
+                let app = app.clone();
+                std::thread::spawn(move || {
+                    for _ in 0..100 {
+                        if !window.is_fullscreen().unwrap_or(false) {
+                            break;
+                        }
+                        std::thread::sleep(Duration::from_millis(20));
+                    }
+                    if let Some(w) = app.get_webview_window(MAIN) {
+                        let _ = w.hide();
+                    }
+                    let _ = app.hide();
+                });
+                return;
+            }
+            // Simple full-screen has no Space, so hiding the window is safe and keeps the app out of Mission Control.
+            let _ = window.hide();
+        }
         let _ = app.hide();
+        return;
     }
     #[cfg(not(target_os = "macos"))]
     hide_main(app);
+}
+/// Tauri's native full-screen on macOS creates a Space that outlives a hidden window. Simple full-screen (the
+/// pre-Lion borderless mode) covers the screen without a Space, so closing to the tray leaves nothing behind.
+static SIMPLE_FULLSCREEN: AtomicBool = AtomicBool::new(false);
+
+#[tauri::command]
+pub fn toggle_simple_fullscreen(window: WebviewWindow) -> Result<bool, String> {
+    // The system menu can still enter a native full-screen Space; leave it first.
+    if window.is_fullscreen().unwrap_or(false) {
+        window.set_fullscreen(false).map_err(|e| e.to_string())?;
+        SIMPLE_FULLSCREEN.store(false, Ordering::Relaxed);
+        return Ok(false);
+    }
+    let on = !SIMPLE_FULLSCREEN.load(Ordering::Relaxed);
+    window.set_simple_fullscreen(on).map_err(|e| e.to_string())?;
+    SIMPLE_FULLSCREEN.store(on, Ordering::Relaxed);
+    Ok(on)
 }
 
 pub fn on_window_event(window: &Window, event: &WindowEvent) {

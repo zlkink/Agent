@@ -680,6 +680,7 @@ pub fn run() {
             tray::tray_menu_close,
             tray::reveal_main_window,
             tray::open_session_in_main,
+            tray::toggle_simple_fullscreen,
         ]);
     #[cfg(mobile)]
     let builder = builder
@@ -713,8 +714,12 @@ pub fn run() {
         .expect("failed to build RamiCore desktop");
 
     app.run(move |_, event| {
-        if let RunEvent::Exit = event {
-            backend.kill();
+        match event {
+            // Clicking the Dock icon after closing to the tray must bring the window back.
+            #[cfg(target_os = "macos")]
+            RunEvent::Reopen { has_visible_windows: false, .. } => tray::show_main(app),
+            RunEvent::Exit => backend.kill(),
+            _ => {}
         }
     });
 }
