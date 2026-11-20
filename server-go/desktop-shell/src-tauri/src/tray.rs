@@ -62,6 +62,9 @@ pub fn reveal_main_window(app: AppHandle) {
 pub fn show_main(app: &AppHandle) {
     REVEALED.store(true, Ordering::SeqCst);
     hide_panel(app);
+    // Undo the application-level hide used on macOS for full-screen close-to-tray.
+    #[cfg(target_os = "macos")]
+    let _ = app.show();
     if let Some(w) = app.get_webview_window(MAIN) {
         let _ = w.unminimize();
         let _ = w.show();
@@ -210,29 +213,15 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
-/// Hides the main window to the menu bar. A native full-screen window must
-/// leave its Space first; hiding during that transition leaves the Space black.
-fn hide_main_to_tray(app: &AppHandle, window: &Window) {
-    #[cfg(not(target_os = "macos"))]
-    let _ = app;
-    #[cfg(target_os = "macos")]
-    if window.is_fullscreen().unwrap_or(false) {
-        let _ = window.set_fullscreen(false);
-        let app = app.clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(900));
-            if let Some(w) = app.get_webview_window(MAIN) {
-                let _ = w.hide();
-            }
-            let _ = app.hide();
-        });
-        return;
-    }
-    let _ = window.hide();
+/// Hides the main window to the menu bar. On macOS hiding the window alone leaves its full-screen Space behind as a
+/// black screen, so the whole application is hidden instead (like other Mac apps) and reopening restores that Space.
+fn hide_main_to_tray(app: &AppHandle) {
     #[cfg(target_os = "macos")]
     {
         let _ = app.hide();
     }
+    #[cfg(not(target_os = "macos"))]
+    hide_main(app);
 }
 
 pub fn on_window_event(window: &Window, event: &WindowEvent) {
@@ -246,7 +235,7 @@ pub fn on_window_event(window: &Window, event: &WindowEvent) {
                 api.prevent_close();
                 if app.state::<TrayState>().close_to_tray.load(Ordering::Relaxed) {
                     hide_panel(app);
-                    hide_main_to_tray(app, window);
+                    hide_main_to_tray(app);
                 } else {
                     // The hidden panel window would otherwise keep the process alive.
                     crate::quit_app(app);
@@ -283,7 +272,7 @@ pub fn tray_menu_action(app: AppHandle, id: String) {
         "show" => show_main(&app),
         "hide" => {
             hide_panel(&app);
-            hide_main(&app);
+            hide_main_to_tray(&app);
         }
         "panel" => toggle_panel(&app, None),
         "quit" => crate::quit_app(&app),
