@@ -220,23 +220,44 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
-/// Hides the main window to the menu bar. Pre-Lion simple full-screen on macOS has no Space, so the app can be
-/// hidden directly. A native full-screen window (or one left over from an older build) must leave its Space first;
-/// hiding it as-is leaves a black Space that survives in Mission Control.
+/// True while the main window sits in the borderless "simple" full screen. tao drops `NSWindowStyleMaskResizable`
+/// for as long as that mode lasts and restores the saved mask on the way out, so the mask itself is the state.
+/// Caching it in a flag went stale as soon as anything else moved the window between modes: tao refuses a change
+/// it is already in, and the system menu / green button can enter a native Space behind our back.
+fn in_simple_fullscreen(window: &WebviewWindow) -> bool {
+    !window.is_resizable().unwrap_or(true)
+}
+
+/// Blocks (never on the main thread) until the window is back in its windowed frame, so hiding or minimizing acts
+/// on the real window instead of the screen-sized one.
+#[cfg(target_os = "macos")]
+fn wait_until_windowed(window: &WebviewWindow) {
+    for _ in 0..100 {
+        if !window.is_fullscreen().unwrap_or(false) && !in_simple_fullscreen(window) {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// Hides the main window to the menu bar. Both full-screen modes have to be left first: a native Space outlives a
+/// hidden window (Mission Control keeps showing it as a black screen) and the borderless mode keeps the Dock and
+/// menu bar auto-hidden, so the window would come back still covering the screen instead of sitting in the tray as
+/// a normal window.
 fn hide_main_to_tray(app: &AppHandle) {
     #[cfg(target_os = "macos")]
     {
         if let Some(window) = app.get_webview_window(MAIN) {
-            if window.is_fullscreen().unwrap_or(false) {
-                let _ = window.set_fullscreen(false);
+            let native = window.is_fullscreen().unwrap_or(false);
+            if native || in_simple_fullscreen(&window) {
+                if native {
+                    let _ = window.set_fullscreen(false);
+                } else {
+                    let _ = window.set_simple_fullscreen(false);
+                }
                 let app = app.clone();
                 std::thread::spawn(move || {
-                    for _ in 0..100 {
-                        if !window.is_fullscreen().unwrap_or(false) {
-                            break;
-                        }
-                        std::thread::sleep(Duration::from_millis(20));
-                    }
+                    wait_until_windowed(&window);
                     if let Some(w) = app.get_webview_window(MAIN) {
                         let _ = w.hide();
                     }
@@ -244,7 +265,7 @@ fn hide_main_to_tray(app: &AppHandle) {
                 });
                 return;
             }
-            // Simple full-screen has no Space, so hiding the window is safe and keeps the app out of Mission Control.
+            // Already windowed: hiding it keeps the app out of Mission Control without touching the frame.
             let _ = window.hide();
         }
         let _ = app.hide();
@@ -253,22 +274,50 @@ fn hide_main_to_tray(app: &AppHandle) {
     #[cfg(not(target_os = "macos"))]
     hide_main(app);
 }
-/// Tauri's native full-screen on macOS creates a Space that outlives a hidden window. Simple full-screen (the
-/// pre-Lion borderless mode) covers the screen without a Space, so closing to the tray leaves nothing behind.
-static SIMPLE_FULLSCREEN: AtomicBool = AtomicBool::new(false);
-
+/// Toggles macOS' borderless full screen (no native Space, so closing to the tray leaves nothing behind) and
+/// reports the state the window ended up in.
 #[tauri::command]
-pub fn toggle_simple_fullscreen(window: WebviewWindow) -> Result<bool, String> {
-    // The system menu can still enter a native full-screen Space; leave it first.
+pub fn toggle_simple_fullscreen(app: AppHandle) -> Result<bool, String> {
+    let Some(window) = app.get_webview_window(MAIN) else { return Err("no main window".into()) };
+    // The system menu and the green button can still enter a native full-screen Space; leave it first.
     if window.is_fullscreen().unwrap_or(false) {
         window.set_fullscreen(false).map_err(|e| e.to_string())?;
-        SIMPLE_FULLSCREEN.store(false, Ordering::Relaxed);
         return Ok(false);
     }
-    let on = !SIMPLE_FULLSCREEN.load(Ordering::Relaxed);
+    let on = !in_simple_fullscreen(&window);
     window.set_simple_fullscreen(on).map_err(|e| e.to_string())?;
-    SIMPLE_FULLSCREEN.store(on, Ordering::Relaxed);
     Ok(on)
+}
+
+/// The page asks for this on load and whenever the window regains focus: a reload, a tray round trip or the system
+/// menu must not leave the reserved menu-bar band and the button glyph describing the wrong mode.
+#[tauri::command]
+pub fn simple_fullscreen_state(app: AppHandle) -> bool {
+    app.get_webview_window(MAIN).is_some_and(|window| in_simple_fullscreen(&window))
+}
+
+/// Minimizes to the Dock. The borderless full screen drops the style bit that makes `miniaturize:` work (so the
+/// button looked usable but did nothing) and keeps the Dock auto-hidden, so the window leaves full screen first and
+/// then minimizes like any other window.
+#[tauri::command]
+pub async fn minimize_main_window(app: AppHandle) -> Result<(), String> {
+    let Some(window) = app.get_webview_window(MAIN) else { return Err("no main window".into()) };
+    if window.is_fullscreen().unwrap_or(false) {
+        window.set_fullscreen(false).map_err(|e| e.to_string())?;
+    } else if in_simple_fullscreen(&window) {
+        window.set_simple_fullscreen(false).map_err(|e| e.to_string())?;
+    } else {
+        return window.minimize().map_err(|e| e.to_string());
+    }
+    // Both modes animate back to the windowed frame and minimizing in the middle of it is ignored, so wait for the
+    // style mask (and the minimize button with it) to actually come back instead of guessing a delay.
+    for _ in 0..100 {
+        if !window.is_fullscreen().unwrap_or(false) && !in_simple_fullscreen(&window) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    window.minimize().map_err(|e| e.to_string())
 }
 
 pub fn on_window_event(window: &Window, event: &WindowEvent) {
