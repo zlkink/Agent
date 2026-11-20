@@ -206,11 +206,9 @@ body { margin: 0; overflow: hidden; overscroll-behavior: none; }
 .titlebar { -webkit-user-select: none; user-select: none; }
 /* Phones draw edge to edge; keep the bar below the status bar / notch (0 elsewhere). */
 .titlebar { padding-top: var(--safe-top); }
-/* macOS: the window's title bar area *is* this bar, so the webview's safe-area inset (the same strip, reported by
-   AppKit because the window uses a full-size content view) must not be added a second time — otherwise the bar is
-   a title bar taller than the traffic lights and everything sits lower than them. The lights start at x=16 and end
-   at x=76, so the controls clear them; a full-screen title bar takes the lights away and the controls move into the
-   space they leave (`--chrome-inset` is published by lib/fullscreen.ts). */
+/* macOS: this bar *is* the window's title bar area, so the webview's safe-area inset (the same strip) must not be
+   added again, and the controls clear the traffic lights at x=16..76 — or take their place in full screen, where
+   AppKit hides them (`--chrome-inset`, lib/fullscreen.ts). */
 .tauri-mac .titlebar { padding-top: 0; padding-left: var(--chrome-inset, 84px); }
 .titlebar button, .titlebar input, .titlebar a, .titlebar [data-no-drag] { -webkit-app-region: no-drag; }
 

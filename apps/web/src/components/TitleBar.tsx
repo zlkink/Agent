@@ -3,7 +3,7 @@ import { Code, ExternalLink, FolderOpen, FolderTree, Globe, Minus, Moon, PanelLe
 import { useEffect, useRef, useState } from "react";
 import { isDesktopShell, isLoopbackHost } from "../lib/backend.ts";
 import { setPrefs, usePrefs } from "../lib/prefs.ts";
-import { closeWindow, hasNativeWindowControls, minimizeWindow, toggleMaximizeWindow } from "../lib/fullscreen.ts";
+import { closeWindow, isMacPlatform, minimizeWindow, toggleMaximizeWindow } from "../lib/fullscreen.ts";
 import { localizeError } from "../lib/errors.ts";
 import { defineMessages, useT } from "../lib/i18n.ts";
 import { call, NO_SUBAGENTS, pluginActive, toggleSubagentPanel, toggleWorkbenchKind, toggleWorkbenchPanel, useStore } from "../lib/store.ts";
@@ -300,7 +300,8 @@ export function TitleBar({ onToggleSidebar, bare }: { onToggleSidebar?: () => vo
 	const title = useStore((s) => s.title);
 	const summary = useStore((s) => s.sessions.find((x) => x.id === s.session?.id));
 	const desktop = isDesktopShell();
-	const nativeControls = desktop && hasNativeWindowControls();
+	// macOS draws the traffic lights itself; the bar only clears them.
+	const nativeControls = desktop && isMacPlatform();
 	const ws = workspaces.find((w) => w.id === session?.workspaceId);
 	const firstUser = session?.messages.find((m) => m.role === "user");
 	const firstText = firstUser ? (typeof firstUser.content === "string" ? firstUser.content : firstUser.content.map((c) => (c.type === "text" ? c.text : "")).join("")).replace(/^<skill name="([^"]*)"[^>]*>[\s\S]*?<\/skill>\s*/, "/skill:$1 ") : "";
@@ -327,9 +328,7 @@ export function TitleBar({ onToggleSidebar, bare }: { onToggleSidebar?: () => vo
 
 	return (
 		<header
-			// `.tauri-mac .titlebar` in styles.css clears the macOS traffic lights (and moves the controls into
-			// their place in full screen, where AppKit hides them).
-			className="titlebar relative z-30 flex min-h-11 shrink-0 items-center gap-2 border-b hairline bg-ink-950/70 pl-2 backdrop-blur"
+			className="titlebar relative z-30 flex min-h-11 shrink-0 items-center gap-2 border-b hairline bg-ink-950 pl-2"
 			data-tauri-drag-region
 		>
 			{onToggleSidebar && (
