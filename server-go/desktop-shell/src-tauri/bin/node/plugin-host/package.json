@@ -1,1 +1,0 @@
-{"name":"prometheus-go-plugin-host","private":true,"type":"module","scripts":{"build":"node build-plugins.mjs"},"dependencies":{"@lancedb/lancedb":"^0.40.0","esbuild":"0.28.2","typebox":"1.3.27"}}
