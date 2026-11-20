@@ -72,6 +72,21 @@ pub fn show_main(app: &AppHandle) {
     }
 }
 
+/// A second launch acts like a taskbar click: surface the window when it is not in front, and minimize it when it
+/// already is. Windows launches a pinned shortcut again instead of toggling when its AppUserModelID does not match
+/// the running window, so the shell never gets a chance to minimize.
+#[cfg(target_os = "windows")]
+pub fn toggle_main(app: &AppHandle) {
+    if let Some(w) = app.get_webview_window(MAIN) {
+        let front = w.is_visible().unwrap_or(false) && w.is_focused().unwrap_or(false) && !w.is_minimized().unwrap_or(false);
+        if front {
+            let _ = w.minimize();
+            return;
+        }
+    }
+    show_main(app);
+}
+
 #[cfg(not(target_os = "macos"))]
 fn hide_main(app: &AppHandle) {
     if let Some(w) = app.get_webview_window(MAIN) {
