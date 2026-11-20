@@ -304,7 +304,7 @@ func New(cfg Config) *Host {
 			s := &Session{
 				ID: rec.ID, Cwd: rec.Cwd, Name: rec.Name, Runtime: runtimeID,
 				Created: rec.Created, Modified: rec.Modified,
-				Archived: rec.Archived, PermissionMode: mode,
+				Archived: rec.Archived, PermissionMode: mode, ThinkingLevel: rec.ThinkingLevel,
 				Provider: rec.Provider, ModelID: rec.Model, nativeID: rec.AgentSessionID,
 				messages: messages,
 				usage: usageTotals{
@@ -1853,7 +1853,7 @@ func (h *Host) dispatch(method string, raw json.RawMessage) (any, error) {
 	switch method {
 	case "host.info":
 		return map[string]any{
-			"version": "0.30.34-ramicore", "piVersion": h.cfg.PIVersion, "protocol": protocolVersion,
+			"version": "0.30.35-ramicore", "piVersion": h.cfg.PIVersion, "protocol": protocolVersion,
 			"cwd": h.cfg.Cwd, "platform": runtime.GOOS,
 		}, nil
 
