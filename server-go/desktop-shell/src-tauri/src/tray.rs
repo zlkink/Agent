@@ -235,38 +235,25 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
-/// True while the window still spans the screen: a native full-screen Space, or a zoomed window.
-///
-/// Width is the reliable part. Height is not: on a notched Mac, macOS keeps the menu-bar band for itself even in full
-/// screen, so a full-screen window is a notch shorter than the screen while still covering it edge to edge.
+/// Waits (off the main thread) until the window has stopped moving. A full-screen transition animates for up to a
+/// second, AppKit drops a hide issued mid-animation, and tao clears its own full-screen flag the moment the call is
+/// made — so the frame is the only honest signal: it changes on every animation step and then stays put.
 #[cfg(target_os = "macos")]
-fn spans_screen(window: &WebviewWindow) -> bool {
-    let (Ok(size), Ok(Some(monitor))) = (window.inner_size(), window.current_monitor()) else { return false };
-    size.width >= monitor.size().width
-}
-
-/// Blocks (never on the main thread) until a native full-screen Space has been left, so hiding acts on the real
-/// window instead of the screen-sized one. Leaving full screen animates for up to a second, AppKit drops a hide issued
-/// mid-animation, and tao clears its own full-screen flag the moment the call is made — so the frame is the only
-/// honest signal, and it only shrinks back once the transition is over.
-#[cfg(target_os = "macos")]
-async fn wait_until_windowed(window: &WebviewWindow) {
-    for _ in 0..250 {
-        if !window.is_fullscreen().unwrap_or(false) && !spans_screen(window) {
-            return;
-        }
+async fn wait_until_settled(window: &WebviewWindow) {
+    let mut last = window.inner_size().ok();
+    let mut quiet = 0;
+    for _ in 0..150 {
         tokio::time::sleep(Duration::from_millis(20)).await;
-    }
-}
-
-/// Waits off the main thread until a maximized window has given the screen back.
-#[cfg(target_os = "macos")]
-async fn wait_until_restored(window: &WebviewWindow) {
-    for _ in 0..50 {
-        if !window.is_maximized().unwrap_or(false) {
-            return;
+        let size = window.inner_size().ok();
+        if size == last {
+            quiet += 1;
+            if quiet >= 10 {
+                return;
+            }
+        } else {
+            quiet = 0;
+            last = size;
         }
-        tokio::time::sleep(Duration::from_millis(20)).await;
     }
 }
 
@@ -277,22 +264,24 @@ fn hide_main_to_tray(app: &AppHandle) {
     #[cfg(target_os = "macos")]
     {
         if let Some(window) = app.get_webview_window(MAIN) {
-            let native = window.is_fullscreen().unwrap_or(false);
-            if native || window.is_maximized().unwrap_or(false) {
-                if native {
-                    let _ = window.set_fullscreen(false);
-                }
+            // Leaving a Space animates and AppKit ignores a hide issued while it does, which left the window sitting
+            // there in its windowed frame: "close" looked like "leave full screen". Give the screen back, wait for the
+            // window to stop moving, then hide — and check that it actually went away.
+            if window.is_fullscreen().unwrap_or(false) || window.is_maximized().unwrap_or(false) {
+                let _ = window.set_fullscreen(false);
+                let _ = window.unmaximize();
                 let app = app.clone();
                 tauri::async_runtime::spawn(async move {
-                    wait_until_windowed(&window).await;
-                    let _ = window.unmaximize();
-                    wait_until_restored(&window).await;
+                    wait_until_settled(&window).await;
                     let _ = window.hide();
+                    if window.is_visible().unwrap_or(false) {
+                        tokio::time::sleep(Duration::from_millis(200)).await;
+                        let _ = window.hide();
+                    }
                     let _ = app.hide();
                 });
                 return;
             }
-            // Already windowed: hiding it keeps the app out of Mission Control without touching the frame.
             let _ = window.hide();
         }
         let _ = app.hide();
