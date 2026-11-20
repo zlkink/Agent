@@ -960,6 +960,11 @@ func (h *Host) snapshot(s *Session) map[string]any {
 		runtimeID = "claude-code"
 	}
 	s.mu.Unlock()
+	if thinkingLevel == "" {
+		h.mu.Lock()
+		thinkingLevel = str(h.settings["defaultThinking"])
+		h.mu.Unlock()
+	}
 
 	if streaming && live != nil {
 		if m := live(); m != nil {
@@ -1240,6 +1245,11 @@ func (h *Host) runPrompt(s *Session, text string, images ...[]any) {
 	sessionProvider, sessionModel := s.Provider, s.ModelID
 	thinkingLevel := s.ThinkingLevel
 	s.mu.Unlock()
+	if thinkingLevel == "" {
+		h.mu.Lock()
+		thinkingLevel = str(h.settings["defaultThinking"])
+		h.mu.Unlock()
+	}
 	if sessionModel != "" {
 		_ = sc.SetModel(sessionModel)
 	}
@@ -1853,7 +1863,7 @@ func (h *Host) dispatch(method string, raw json.RawMessage) (any, error) {
 	switch method {
 	case "host.info":
 		return map[string]any{
-			"version": "0.30.35-ramicore", "piVersion": h.cfg.PIVersion, "protocol": protocolVersion,
+			"version": "0.30.36-ramicore", "piVersion": h.cfg.PIVersion, "protocol": protocolVersion,
 			"cwd": h.cfg.Cwd, "platform": runtime.GOOS,
 		}, nil
 

@@ -63,6 +63,11 @@ func (h *Host) runCodexPrompt(s *Session, text string) {
 	modelID := s.ModelID
 	thinking := s.ThinkingLevel
 	s.mu.Unlock()
+	if thinking == "" {
+		h.mu.Lock()
+		thinking = str(h.settings["defaultThinking"])
+		h.mu.Unlock()
+	}
 	if modelID != "" && modelID != "default" {
 		args = append(args, "-m", modelID)
 	}

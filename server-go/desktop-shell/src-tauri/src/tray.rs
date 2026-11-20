@@ -210,6 +210,31 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
+/// Hides the main window to the menu bar. A native full-screen window must
+/// leave its Space first; hiding during that transition leaves the Space black.
+fn hide_main_to_tray(app: &AppHandle, window: &Window) {
+    #[cfg(not(target_os = "macos"))]
+    let _ = app;
+    #[cfg(target_os = "macos")]
+    if window.is_fullscreen().unwrap_or(false) {
+        let _ = window.set_fullscreen(false);
+        let app = app.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(900));
+            if let Some(w) = app.get_webview_window(MAIN) {
+                let _ = w.hide();
+            }
+            let _ = app.hide();
+        });
+        return;
+    }
+    let _ = window.hide();
+    #[cfg(target_os = "macos")]
+    {
+        let _ = app.hide();
+    }
+}
+
 pub fn on_window_event(window: &Window, event: &WindowEvent) {
     let app = window.app_handle();
     match event {
@@ -221,7 +246,7 @@ pub fn on_window_event(window: &Window, event: &WindowEvent) {
                 api.prevent_close();
                 if app.state::<TrayState>().close_to_tray.load(Ordering::Relaxed) {
                     hide_panel(app);
-                    let _ = window.hide();
+                    hide_main_to_tray(app, window);
                 } else {
                     // The hidden panel window would otherwise keep the process alive.
                     crate::quit_app(app);
