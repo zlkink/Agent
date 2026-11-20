@@ -1,14 +1,20 @@
 import clsx from "clsx";
-import { Code, ExternalLink, FolderOpen, FolderTree, Globe, Minimize2, Minus, Moon, PanelLeft, PanelRight, PanelRightClose, PanelRightOpen, Square, SquareTerminal, Sun, X } from "lucide-react";
+import { Code, ExternalLink, FolderOpen, FolderTree, Globe, Minus, Moon, PanelLeft, PanelRight, PanelRightClose, PanelRightOpen, Square, SquareTerminal, Sun, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { isDesktopShell, isLoopbackHost } from "../lib/backend.ts";
 import { setPrefs, usePrefs } from "../lib/prefs.ts";
-import { closePlatformWindow, isMacPlatform, isPlatformFullscreen, minimizePlatformWindow, onPlatformFullscreen, togglePlatformFullscreen } from "../lib/fullscreen.ts";
+import { closeWindow, hasNativeWindowControls, minimizeWindow, toggleMaximizeWindow } from "../lib/fullscreen.ts";
 import { localizeError } from "../lib/errors.ts";
 import { defineMessages, useT } from "../lib/i18n.ts";
 import { call, NO_SUBAGENTS, pluginActive, toggleSubagentPanel, toggleWorkbenchKind, toggleWorkbenchPanel, useStore } from "../lib/store.ts";
 import { TURN_DONE_EVENT } from "../lib/notify.ts";
 import { Flame } from "./ui.tsx";
+
+/**
+ * Room for the macOS traffic lights that AppKit draws over the title bar (they start at x=16, are 52pt wide, plus a
+ * gap before our own controls).
+ */
+const MACOS_TRAFFIC_LIGHT_INSET = 78;
 
 /** The brand flame burns brighter while the agent works and flares once when a turn finishes. */
 function BrandFlame({ live }: { live: boolean }) {
@@ -36,7 +42,6 @@ const M = defineMessages({
 		toggleSidebar: "切换侧栏",
 		minimize: "最小化",
 		maximize: "最大化",
-		restore: "还原窗口",
 		close: "关闭",
 		themeToggle: "切换明暗主题",
 		newChat: "新会话",
@@ -55,7 +60,6 @@ const M = defineMessages({
 		toggleSidebar: "Toggle sidebar",
 		minimize: "Minimize",
 		maximize: "Maximize",
-		restore: "Restore window",
 		close: "Close",
 		themeToggle: "Toggle light/dark theme",
 		newChat: "New chat",
@@ -271,34 +275,22 @@ function ThemeToggle() {
 	);
 }
 
+/** Windows/Linux only: macOS gets the system traffic lights over the title bar (see lib/fullscreen.ts). */
 function WindowControls() {
 	const t = useT(M);
-	// The shell owns the mode; this mirrors it so the glyph and the tooltip stay honest.
-	const [full, setFull] = useState(isPlatformFullscreen);
-	useEffect(() => onPlatformFullscreen(setFull), []);
-	// macOS' green button opens a native full-screen Space; the shell uses the borderless mode instead, which
-	// closes to the tray like any other window.
 	const act = async (op: "minimize" | "toggleMaximize" | "close") => {
-		if (op === "toggleMaximize") await togglePlatformFullscreen();
-		else if (op === "minimize") await minimizePlatformWindow();
-		else await closePlatformWindow();
+		if (op === "toggleMaximize") await toggleMaximizeWindow();
+		else if (op === "minimize") await minimizeWindow();
+		else await closeWindow();
 	};
 	const base = "grid h-full w-11 place-items-center text-ink-400 transition-colors";
-	const toggleLabel = full ? t("restore") : t("maximize");
 	return (
 		<div className="ml-1 flex h-full items-stretch">
 			<button type="button" className={clsx(base, "hover:bg-ink-800 hover:text-ink-100")} onClick={() => void act("minimize")} title={t("minimize")} aria-label={t("minimize")}>
 				<Minus className="size-4" />
 			</button>
-			<button
-				type="button"
-				className={clsx(base, "hover:bg-ink-800 hover:text-ink-100")}
-				onClick={() => void act("toggleMaximize")}
-				title={toggleLabel}
-				aria-label={toggleLabel}
-				aria-pressed={full}
-			>
-				{full ? <Minimize2 className="size-3" /> : <Square className="size-3" />}
+			<button type="button" className={clsx(base, "hover:bg-ink-800 hover:text-ink-100")} onClick={() => void act("toggleMaximize")} title={t("maximize")} aria-label={t("maximize")}>
+				<Square className="size-3" />
 			</button>
 			<button type="button" className={clsx(base, "hover:bg-rose-500 hover:text-white")} onClick={() => void act("close")} title={t("close")} aria-label={t("close")}>
 				<X className="size-4" />
@@ -314,20 +306,11 @@ export function TitleBar({ onToggleSidebar, bare }: { onToggleSidebar?: () => vo
 	const title = useStore((s) => s.title);
 	const summary = useStore((s) => s.sessions.find((x) => x.id === s.session?.id));
 	const desktop = isDesktopShell();
+	const nativeControls = desktop && hasNativeWindowControls();
 	const ws = workspaces.find((w) => w.id === session?.workspaceId);
 	const firstUser = session?.messages.find((m) => m.role === "user");
 	const firstText = firstUser ? (typeof firstUser.content === "string" ? firstUser.content : firstUser.content.map((c) => (c.type === "text" ? c.text : "")).join("")).replace(/^<skill name="([^"]*)"[^>]*>[\s\S]*?<\/skill>\s*/, "/skill:$1 ") : "";
 	const name = title || session?.name || summary?.name || firstText.trim() || localizeError(summary?.firstMessage ?? "") || t("newChat");
-	const toggleWindow = async () => {
-		if (!desktop) return;
-		// macOS: use simple full screen so closing to the tray leaves no Space behind.
-		if (isMacPlatform()) {
-			await togglePlatformFullscreen();
-			return;
-		}
-		const { getCurrentWindow } = await import("@tauri-apps/api/window");
-		await getCurrentWindow().toggleMaximize();
-	};
 
 	let heading: React.ReactNode = null;
 	if (bare) {
@@ -350,19 +333,8 @@ export function TitleBar({ onToggleSidebar, bare }: { onToggleSidebar?: () => vo
 
 	return (
 		<header
-			onMouseUp={
-				// Tauri's drag-region script toggles maximize on macOS on the second
-				// mouseup. Stop it here (React's listener sits inside <body>) and use
-				// native full screen instead, otherwise both handlers race.
-				isMacPlatform()
-					? (e) => {
-							if (e.detail !== 2) return;
-							if ((e.target as HTMLElement).closest("button,input,select,textarea,a")) return;
-							e.stopPropagation();
-							void toggleWindow();
-						}
-					: undefined
-			}
+			// The macOS traffic lights are drawn by AppKit over the content; leave them their corner.
+			style={nativeControls ? { paddingLeft: MACOS_TRAFFIC_LIGHT_INSET } : undefined}
 			className="titlebar relative z-30 flex min-h-11 shrink-0 items-center gap-2 border-b hairline bg-ink-950/70 pl-2 backdrop-blur"
 			data-tauri-drag-region
 		>
@@ -381,7 +353,7 @@ export function TitleBar({ onToggleSidebar, bare }: { onToggleSidebar?: () => vo
 			</div>
 			{!bare && <SessionTools />}
 			<ThemeToggle />
-			{desktop ? <WindowControls /> : <span className="w-2" />}
+			{desktop && !nativeControls ? <WindowControls /> : <span className="w-2" />}
 		</header>
 	);
 }

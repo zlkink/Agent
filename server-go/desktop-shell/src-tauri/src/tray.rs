@@ -220,12 +220,24 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
-/// Blocks (never on the main thread) until a native full-screen Space has been left, so hiding or minimizing acts on
-/// the real window instead of the screen-sized one.
+/// True while the window still spans the screen: a native full-screen Space, or a zoomed window.
+///
+/// Width is the reliable part. Height is not: on a notched Mac, macOS keeps the menu-bar band for itself even in full
+/// screen, so a full-screen window is a notch shorter than the screen while still covering it edge to edge.
+#[cfg(target_os = "macos")]
+fn spans_screen(window: &WebviewWindow) -> bool {
+    let (Ok(size), Ok(Some(monitor))) = (window.inner_size(), window.current_monitor()) else { return false };
+    size.width >= monitor.size().width
+}
+
+/// Blocks (never on the main thread) until a native full-screen Space has been left, so hiding acts on the real
+/// window instead of the screen-sized one. Leaving full screen animates for up to a second, AppKit drops a hide issued
+/// mid-animation, and tao clears its own full-screen flag the moment the call is made — so the frame is the only
+/// honest signal, and it only shrinks back once the transition is over.
 #[cfg(target_os = "macos")]
 async fn wait_until_windowed(window: &WebviewWindow) {
-    for _ in 0..100 {
-        if !window.is_fullscreen().unwrap_or(false) {
+    for _ in 0..250 {
+        if !window.is_fullscreen().unwrap_or(false) && !spans_screen(window) {
             return;
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
@@ -243,9 +255,9 @@ async fn wait_until_restored(window: &WebviewWindow) {
     }
 }
 
-/// Hides the main window to the menu bar. Whatever the window filled has to be given back first so a restore comes
+/// Hides the main window to the menu bar. Anything the window filled has to be given back first so a restore comes
 /// back as a normal window: a native Space outlives a hidden window (Mission Control keeps showing it as a black
-/// screen) and a maximized window would come back covering the screen.
+/// screen) and a zoomed window would come back covering the screen.
 fn hide_main_to_tray(app: &AppHandle) {
     #[cfg(target_os = "macos")]
     {
@@ -273,56 +285,6 @@ fn hide_main_to_tray(app: &AppHandle) {
     }
     #[cfg(not(target_os = "macos"))]
     hide_main(app);
-}
-/// Fills the screen's usable area (the menu bar and the Dock stay where they are) and back, reporting whether the
-/// window ends up filling it.
-///
-/// The borderless "simple" full screen used here before covered the menu bar strip: the auto-hidden menu bar slid
-/// back down over the window buttons so they could not be clicked, and macOS dropped the style bit that makes
-/// `minimize:` work. Filling the work area keeps the title bar exactly where a normal window has it — same look in
-/// both states, nothing layered over it, native minimize and close — and creates no Space, so closing to the tray
-/// still leaves nothing behind in Mission Control.
-#[tauri::command]
-pub async fn toggle_fullscreen(app: AppHandle) -> Result<bool, String> {
-    let Some(window) = app.get_webview_window(MAIN) else { return Err("no main window".into()) };
-    // A native full-screen Space still has to go first: it cannot be hidden to the tray.
-    #[cfg(target_os = "macos")]
-    {
-        if window.is_fullscreen().unwrap_or(false) {
-            window.set_fullscreen(false).map_err(|e| e.to_string())?;
-            wait_until_windowed(&window).await;
-        }
-    }
-    let on = !window.is_maximized().unwrap_or(false);
-    if on {
-        window.maximize().map_err(|e| e.to_string())?;
-    } else {
-        window.unmaximize().map_err(|e| e.to_string())?;
-    }
-    Ok(on)
-}
-
-/// Whether the window fills the screen right now. The page asks on load and on every focus change, and the answer
-/// comes from the window itself, so the button glyph cannot drift out of date.
-#[tauri::command]
-pub fn fullscreen_state(app: AppHandle) -> bool {
-    let Some(window) = app.get_webview_window(MAIN) else { return false };
-    window.is_fullscreen().unwrap_or(false) || window.is_maximized().unwrap_or(false)
-}
-
-/// Minimizes to the Dock. Only a native Space has to be left first (macOS refuses to minimize one); a window that
-/// merely fills the work area minimizes natively, which is the point of not covering the menu bar.
-#[tauri::command]
-pub async fn minimize_main_window(app: AppHandle) -> Result<(), String> {
-    let Some(window) = app.get_webview_window(MAIN) else { return Err("no main window".into()) };
-    #[cfg(target_os = "macos")]
-    {
-        if window.is_fullscreen().unwrap_or(false) {
-            window.set_fullscreen(false).map_err(|e| e.to_string())?;
-            wait_until_windowed(&window).await;
-        }
-    }
-    window.minimize().map_err(|e| e.to_string())
 }
 
 pub fn on_window_event(window: &Window, event: &WindowEvent) {
