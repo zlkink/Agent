@@ -9,7 +9,7 @@ export function isMacPlatform(): boolean {
 	return /mac/i.test(String(navigator.platform || navigator.userAgent));
 }
 
-const INSET_WINDOWED = "77px";
+const INSET_WINDOWED = "84px";
 const INSET_FULLSCREEN = "18px";
 
 let fullscreen = false;

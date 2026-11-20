@@ -328,11 +328,7 @@ export function TitleBar({ onToggleSidebar, bare }: { onToggleSidebar?: () => vo
 
 	return (
 		<header
-			className={clsx(
-				"titlebar relative z-30 flex shrink-0 items-center gap-2 border-b hairline bg-ink-950 pl-2",
-				// macOS sizes the bar from the title-bar strip (styles.css); everywhere else keeps the taller bar.
-				nativeControls ? "h-8" : "min-h-11",
-			)}
+			className="titlebar relative z-30 flex min-h-11 shrink-0 items-center gap-2 border-b hairline bg-ink-950 pl-2"
 			data-tauri-drag-region
 		>
 			{onToggleSidebar && (
