@@ -12,11 +12,6 @@ export function isMacPlatform(): boolean {
 	return /mac/i.test(String(navigator.platform || navigator.userAgent));
 }
 
-/** True when the platform supplies the window buttons itself, so the title bar must not draw any. */
-export function hasNativeWindowControls(): boolean {
-	return isMacPlatform();
-}
-
 /** Where the title bar's own controls start: right of the traffic lights, or their place when they are away. */
 const CHROME_INSET_WINDOWED = "84px";
 const CHROME_INSET_FULLSCREEN = "18px";
@@ -54,17 +49,9 @@ async function sync(): Promise<void> {
 }
 
 /**
- * Keeps `--chrome-inset` in step with the window.
- *
- * A full-screen Space hides the traffic lights (they only slide over the content on hover), so the title bar's own
- * controls take their place instead of leaving a gap — the same shift the system title bar does. The two directions
- * have to happen at different moments, which is why this watches `resize` as well as asking the shell:
- *
- * - leaving: AppKit puts the lights back at the *end* of the exit animation while the frame has already been
- *   shrinking for several frames, so the controls move on the first shrink — the shell's answer arrives too late and
- *   the returning lights would land on top of them;
- * - entering: the lights only leave at the *end* of the entry animation, so the controls wait for the window to
- *   settle before moving into their place.
+ * Keeps `--chrome-inset` in step with the window: a Space hides the lights, so the controls take their place. Leaving
+ * and entering need opposite timing — AppKit puts the lights back only when the exit animation ends, so the controls
+ * move on the first shrink, while entering waits for the window to settle.
  */
 export function installWindowChrome(): void {
 	if (!isMacPlatform()) return;

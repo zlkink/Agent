@@ -239,16 +239,12 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
 #[cfg(target_os = "macos")]
 static HIDE_AFTER_FULLSCREEN_EXIT: AtomicBool = AtomicBool::new(false);
 
-/// How long to wait for AppKit's exit notification before hiding anyway, so an interrupted transition cannot make
-/// the close button do nothing.
+/// Fallback when the exit notification never arrives, so the close button cannot end up doing nothing.
 #[cfg(target_os = "macos")]
 const FULLSCREEN_EXIT_TIMEOUT: Duration = Duration::from_secs(3);
 
-/// Hides the window once AppKit has really left the Space.
-///
-/// AppKit re-shows the window when the exit transition finishes and lands back on its Space, so a hide issued during
-/// the transition is undone — which is what made closing in full screen leave the window sitting there. tao has
-/// already cleared its own full-screen flag by then, so only this notification marks the end.
+/// Hides the window once AppKit has really left the Space — it re-shows the window when the exit transition lands back
+/// on its Space, so a hide issued earlier is undone (tao's own flag is already cleared by then).
 #[cfg(target_os = "macos")]
 pub fn install_fullscreen_exit_observer(app: &AppHandle) -> tauri::Result<()> {
     use objc2_app_kit::{NSWindow, NSWindowDidExitFullScreenNotification};

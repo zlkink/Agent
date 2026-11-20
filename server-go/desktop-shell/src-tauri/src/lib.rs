@@ -652,8 +652,7 @@ pub fn run() {
             tray::init(app.handle())?;
             #[cfg(target_os = "macos")]
             tray::install_fullscreen_exit_observer(app.handle())?;
-            // The window is created with a real title bar so macOS gets its traffic lights; Windows and Linux draw
-            // their own buttons, so they drop the decorations again.
+            // Created with a real title bar for the macOS traffic lights; these platforms draw their own buttons.
             #[cfg(not(target_os = "macos"))]
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_decorations(false);
