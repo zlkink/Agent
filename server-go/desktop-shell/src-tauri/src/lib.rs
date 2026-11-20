@@ -650,6 +650,19 @@ pub fn run() {
         .on_window_event(tray::on_window_event)
         .setup(|app| {
             tray::init(app.handle())?;
+            // The window is created with a real title bar so macOS gets its traffic lights; Windows and Linux draw
+            // their own buttons, so they drop the decorations again.
+            #[cfg(not(target_os = "macos"))]
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_decorations(false);
+            }
+            // macOS draws the traffic lights in a real title bar; the shared config is frameless for Windows/Linux,
+            // and a `tauri.macos.conf.json` is not picked up here, so switch the window over in code before it shows.
+            #[cfg(target_os = "macos")]
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_decorations(true);
+                let _ = window.set_title_bar_style(tauri::utils::TitleBarStyle::Overlay);
+            }
             // The page normally reveals the window within a few hundred ms; this only covers a page that never loads.
             let handle = app.handle().clone();
             std::thread::spawn(move || {
@@ -685,6 +698,7 @@ pub fn run() {
             tray::tray_menu_close,
             tray::reveal_main_window,
             tray::open_session_in_main,
+            tray::window_fullscreen,
         ]);
     #[cfg(mobile)]
     let builder = builder

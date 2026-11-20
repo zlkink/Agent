@@ -72,21 +72,6 @@ pub fn show_main(app: &AppHandle) {
     }
 }
 
-/// A second launch acts like a taskbar click: surface the window when it is not in front, and minimize it when it
-/// already is. Windows launches a pinned shortcut again instead of toggling when its AppUserModelID does not match
-/// the running window, so the shell never gets a chance to minimize.
-#[cfg(target_os = "windows")]
-pub fn toggle_main(app: &AppHandle) {
-    if let Some(w) = app.get_webview_window(MAIN) {
-        let front = w.is_visible().unwrap_or(false) && w.is_focused().unwrap_or(false) && !w.is_minimized().unwrap_or(false);
-        if front {
-            let _ = w.minimize();
-            return;
-        }
-    }
-    show_main(app);
-}
-
 #[cfg(not(target_os = "macos"))]
 fn hide_main(app: &AppHandle) {
     if let Some(w) = app.get_webview_window(MAIN) {
@@ -235,16 +220,20 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
-/// True while the window spans the screen. Width, not height: a notched Mac keeps the menu-bar band even in full
-/// screen, so the window is a notch shorter than the screen while still covering it edge to edge.
+/// True while the window still spans the screen: a native full-screen Space, or a zoomed window.
+///
+/// Width is the reliable part. Height is not: on a notched Mac, macOS keeps the menu-bar band for itself even in full
+/// screen, so a full-screen window is a notch shorter than the screen while still covering it edge to edge.
 #[cfg(target_os = "macos")]
 fn spans_screen(window: &WebviewWindow) -> bool {
     let (Ok(size), Ok(Some(monitor))) = (window.inner_size(), window.current_monitor()) else { return false };
     size.width >= monitor.size().width
 }
 
-/// Waits (off the main thread) for a full-screen Space to be left. tao clears its own flag immediately and AppKit
-/// drops a hide issued mid-animation, so the frame is the only signal that the transition is over.
+/// Blocks (never on the main thread) until a native full-screen Space has been left, so hiding acts on the real
+/// window instead of the screen-sized one. Leaving full screen animates for up to a second, AppKit drops a hide issued
+/// mid-animation, and tao clears its own full-screen flag the moment the call is made — so the frame is the only
+/// honest signal, and it only shrinks back once the transition is over.
 #[cfg(target_os = "macos")]
 async fn wait_until_windowed(window: &WebviewWindow) {
     for _ in 0..250 {
@@ -255,7 +244,7 @@ async fn wait_until_windowed(window: &WebviewWindow) {
     }
 }
 
-/// Waits (off the main thread) until the window has given the screen back.
+/// Waits off the main thread until a maximized window has given the screen back.
 #[cfg(target_os = "macos")]
 async fn wait_until_restored(window: &WebviewWindow) {
     for _ in 0..50 {
@@ -266,8 +255,9 @@ async fn wait_until_restored(window: &WebviewWindow) {
     }
 }
 
-/// Hides the main window to the menu bar. Full screen and zoom are given back first: a Space outlives a hidden
-/// window (Mission Control keeps it as a black screen) and a zoomed window would come back covering the screen.
+/// Hides the main window to the menu bar. Anything the window filled has to be given back first so a restore comes
+/// back as a normal window: a native Space outlives a hidden window (Mission Control keeps showing it as a black
+/// screen) and a zoomed window would come back covering the screen.
 fn hide_main_to_tray(app: &AppHandle) {
     #[cfg(target_os = "macos")]
     {
@@ -295,6 +285,17 @@ fn hide_main_to_tray(app: &AppHandle) {
     }
     #[cfg(not(target_os = "macos"))]
     hide_main(app);
+}
+
+/// Whether a native full-screen Space is active.
+///
+/// The page asks on load, on resize and on focus: in a Space AppKit hides the traffic lights (they only slide over the
+/// content while the pointer is at the top), so the title bar's own controls move into the place the lights leave
+/// instead of keeping an empty gap. Zoomed does not count — it spans the screen too but keeps the lights.
+#[tauri::command]
+pub fn window_fullscreen(app: AppHandle) -> bool {
+    let Some(window) = app.get_webview_window(MAIN) else { return false };
+    window.is_fullscreen().unwrap_or(false)
 }
 
 pub fn on_window_event(window: &Window, event: &WindowEvent) {
