@@ -297,14 +297,6 @@ fn hide_main_to_tray(app: &AppHandle) {
     hide_main(app);
 }
 
-/// Whether a native full-screen Space is active — zoomed does not count, it keeps its traffic lights. The page uses
-/// this to move the title bar controls into the place the lights leave while they are hidden.
-#[tauri::command]
-pub fn window_fullscreen(app: AppHandle) -> bool {
-    let Some(window) = app.get_webview_window(MAIN) else { return false };
-    window.is_fullscreen().unwrap_or(false)
-}
-
 pub fn on_window_event(window: &Window, event: &WindowEvent) {
     let app = window.app_handle();
     match event {

@@ -206,10 +206,6 @@ body { margin: 0; overflow: hidden; overscroll-behavior: none; }
 .titlebar { -webkit-user-select: none; user-select: none; }
 /* Phones draw edge to edge; keep the bar below the status bar / notch (0 elsewhere). */
 .titlebar { padding-top: var(--safe-top); }
-/* macOS: this bar *is* the window's title bar area, so the webview's safe-area inset (the same strip) must not be
-   added again, and the controls clear the traffic lights at x=16..76 — or take their place in full screen, where
-   AppKit hides them (`--chrome-inset`, lib/fullscreen.ts). */
-.tauri-mac .titlebar { padding-top: 0; padding-left: var(--chrome-inset, 84px); }
 .titlebar button, .titlebar input, .titlebar a, .titlebar [data-no-drag] { -webkit-app-region: no-drag; }
 
 /* Thinking-effort slider */

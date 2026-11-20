@@ -5,7 +5,6 @@ import { ErrorBoundary, recordError } from "./components/ErrorBoundary.tsx";
 import { PanelApp } from "./components/PanelApp.tsx";
 import { TrayMenuApp } from "./components/TrayMenuApp.tsx";
 import { installBackHandler } from "./lib/back.ts";
-import { installWindowChrome } from "./lib/fullscreen.ts";
 import { installGlobalGuards } from "./lib/links.ts";
 import "./lib/prefs.ts";
 import { installKeyboardInset, installSafeArea } from "./lib/viewport.ts";
@@ -15,7 +14,6 @@ installGlobalGuards();
 installBackHandler();
 installKeyboardInset();
 installSafeArea();
-installWindowChrome();
 // Keep uncaught errors (including errors thrown from event handlers, which no
 // error boundary sees) so a crash can be diagnosed after a restart.
 window.addEventListener("error", (e) => recordError("window error", `${e.message}\n${e.error?.stack ?? ""}`));
