@@ -21,34 +21,72 @@ export function hasNativeWindowControls(): boolean {
 const CHROME_INSET_WINDOWED = "84px";
 const CHROME_INSET_FULLSCREEN = "18px";
 
-function applyChromeInset(fullscreen: boolean): void {
-	document.documentElement.style.setProperty("--chrome-inset", fullscreen ? CHROME_INSET_FULLSCREEN : CHROME_INSET_WINDOWED);
+let fullscreen = false;
+let inset = "";
+
+/** True while the window spans the screen — so, for the whole time a full-screen Space is on screen. */
+function spansScreen(): boolean {
+	const width = Number(window.screen.width);
+	return Number.isFinite(width) && width > 0 && window.innerWidth >= width - 1;
 }
 
-async function syncChromeInset(): Promise<void> {
+function apply(): void {
+	// A zoomed window also spans the screen, but it keeps its traffic lights, so only a real full screen frees the
+	// space up — hence `fullscreen && spansScreen()` rather than geometry alone. Resize fires on every frame of the
+	// full-screen animation, so this only touches the style when the answer actually changes.
+	const next = fullscreen && spansScreen() ? CHROME_INSET_FULLSCREEN : CHROME_INSET_WINDOWED;
+	if (next === inset) return;
+	inset = next;
+	document.documentElement.style.setProperty("--chrome-inset", next);
+}
+
+/** Asks the shell whether a Space full screen is active (zoom is not one) and re-applies the inset. */
+async function sync(): Promise<void> {
 	if (!isMacPlatform() || !("__TAURI_INTERNALS__" in window)) return;
 	try {
 		const { invoke } = await import("@tauri-apps/api/core");
-		applyChromeInset((await invoke<boolean>("window_fullscreen")) === true);
+		fullscreen = (await invoke<boolean>("window_fullscreen")) === true;
 	} catch {
-		// Not the desktop shell, or an older build: the stylesheet default (clearing the lights) still applies.
+		// Not the desktop shell, or an older build: keep the stylesheet default (clearing the lights).
+		return;
 	}
+	apply();
 }
 
 /**
  * Keeps `--chrome-inset` in step with the window.
  *
- * A full-screen Space hides the traffic lights (they only slide over the content on hover), so the title bar's
- * controls take their place instead of leaving a gap — the same thing the system does for its own title bar.
+ * A full-screen Space hides the traffic lights (they only slide over the content on hover), so the title bar's own
+ * controls take their place instead of leaving a gap — the same shift the system title bar does. The two directions
+ * have to happen at different moments, which is why this watches `resize` as well as asking the shell:
+ *
+ * - leaving: AppKit puts the lights back at the *end* of the exit animation while the frame has already been
+ *   shrinking for several frames, so the controls move on the first shrink — the shell's answer arrives too late and
+ *   the returning lights would land on top of them;
+ * - entering: the lights only leave at the *end* of the entry animation, so the controls wait for the window to
+ *   settle before moving into their place.
  */
 export function installWindowChrome(): void {
 	if (!isMacPlatform()) return;
-	void syncChromeInset();
-	// Entering and leaving full screen both resize the window; a tray restore comes back through a focus change.
-	window.addEventListener("resize", () => void syncChromeInset());
-	window.addEventListener("focus", () => void syncChromeInset());
+	apply();
+	void sync();
+	let settle: ReturnType<typeof setTimeout> | undefined;
+	window.addEventListener("resize", () => {
+		if (fullscreen && !spansScreen()) {
+			fullscreen = false;
+			apply();
+		}
+		// One round trip per gesture instead of one per animation frame.
+		if (settle !== undefined) clearTimeout(settle);
+		settle = setTimeout(() => {
+			settle = undefined;
+			void sync();
+		}, 150);
+	});
+	// A tray restore comes back through a focus change rather than a resize.
+	window.addEventListener("focus", () => void sync());
 	document.addEventListener("visibilitychange", () => {
-		if (document.visibilityState === "visible") void syncChromeInset();
+		if (document.visibilityState === "visible") void sync();
 	});
 }
 
