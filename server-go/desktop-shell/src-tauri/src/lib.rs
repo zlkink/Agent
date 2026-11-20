@@ -713,11 +713,13 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("failed to build RamiCore desktop");
 
-    app.run(move |_, event| {
+    app.run(move |app, event| {
+        #[cfg(not(target_os = "macos"))]
+        let _ = app;
         match event {
             // Clicking the Dock icon after closing to the tray must bring the window back.
             #[cfg(target_os = "macos")]
-            RunEvent::Reopen { has_visible_windows: false, .. } => tray::show_main(app.handle()),
+            RunEvent::Reopen { has_visible_windows: false, .. } => tray::show_main(app),
             RunEvent::Exit => backend.kill(),
             _ => {}
         }
