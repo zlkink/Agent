@@ -19,6 +19,8 @@ interface UpdaterState {
 	total: number | null;
 	/** True once the download is done and the app is stopping the server / installing. */
 	downloaded: boolean;
+	/** No signed manifest: install opens the release page instead of the updater. */
+	manual: boolean;
 }
 
 export const useUpdater = create<UpdaterState>(() => ({
@@ -30,6 +32,7 @@ export const useUpdater = create<UpdaterState>(() => ({
 	received: 0,
 	total: null,
 	downloaded: false,
+	manual: false,
 }));
 
 /** Resolves the running download's cancel race. The updater plugin cannot abort the transfer itself, so a cancel
@@ -113,7 +116,7 @@ export async function checkForUpdate(silent = false): Promise<void> {
 		}
 		pending = update;
 		manualUrl = null;
-		useUpdater.setState({ phase: "available", version: update.version, notes: update.body ?? null, dismissed: false });
+		useUpdater.setState({ phase: "available", version: update.version, notes: update.body ?? null, dismissed: false, manual: false });
 	} catch (e) {
 		// A release without latest.json cannot drive the signed updater. Still
 		// report a newer release and let the user open its download page.
@@ -121,7 +124,7 @@ export async function checkForUpdate(silent = false): Promise<void> {
 		if (rel && isNewer(rel.version, __APP_VERSION__)) {
 			manualUrl = rel.url;
 			pending = null;
-			useUpdater.setState({ phase: "available", version: rel.version, notes: rel.notes ?? "自动更新清单不可用，将从 GitHub 下载页安装。", dismissed: false });
+			useUpdater.setState({ phase: "available", version: rel.version, notes: rel.notes ?? "自动更新清单不可用，将从 GitHub 下载页安装。", dismissed: false, manual: true });
 			return;
 		}
 		useUpdater.setState(silent ? { phase: "idle" } : { phase: "error", error: errText(e) });
@@ -180,7 +183,7 @@ export function startIdleUpdater(): () => void {
 			lastCheck = Date.now();
 			await checkForUpdate(true);
 		}
-		if (useUpdater.getState().phase !== "available" || Date.now() - idleSince < IDLE_NEEDED_MS) return;
+		if (useUpdater.getState().phase !== "available" || useUpdater.getState().manual || Date.now() - idleSince < IDLE_NEEDED_MS) return;
 		busy = true;
 		try {
 			// The dialog is for updates the user decides on; this one happens quietly.

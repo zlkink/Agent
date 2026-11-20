@@ -1853,7 +1853,7 @@ func (h *Host) dispatch(method string, raw json.RawMessage) (any, error) {
 	switch method {
 	case "host.info":
 		return map[string]any{
-			"version": "0.30.33-ramicore", "piVersion": h.cfg.PIVersion, "protocol": protocolVersion,
+			"version": "0.30.34-ramicore", "piVersion": h.cfg.PIVersion, "protocol": protocolVersion,
 			"cwd": h.cfg.Cwd, "platform": runtime.GOOS,
 		}, nil
 
@@ -2604,6 +2604,7 @@ func (h *Host) dispatch(method string, raw json.RawMessage) (any, error) {
 			if v, err := agents.Version(ctx, a.Path); err == nil {
 				a.Version = v
 			}
+			h.refreshAgentCfg("claude-code")
 			return map[string]any{"ok": true, "version": a.Version, "output": text}, nil
 		}
 		if kind == "codex" {
@@ -2632,6 +2633,7 @@ func (h *Host) dispatch(method string, raw json.RawMessage) (any, error) {
 			if v, err := agents.Version(ctx, a.Path); err == nil {
 				a.Version = v
 			}
+			h.refreshAgentCfg("codex")
 			return map[string]any{"ok": true, "version": a.Version, "output": text}, nil
 		}
 		return nil, fmt.Errorf("installing this agent CLI is not implemented; install it with its official installer")
@@ -4898,4 +4900,22 @@ func modelLooksVision(id string) bool {
 		}
 	}
 	return false
+}
+
+// refreshAgentCfg replaces the cached runtime details after an agent CLI was
+// updated in place: runtime.list otherwise keeps showing the version seen at
+// host startup.
+func (h *Host) refreshAgentCfg(id string) {
+	a, err := agents.Resolve(id)
+	if err != nil || a.Path == "" {
+		return
+	}
+	h.mu.Lock()
+	switch id {
+	case "claude-code":
+		h.cfg.Claude = a
+	case "codex":
+		h.cfg.Codex = a
+	}
+	h.mu.Unlock()
 }
