@@ -717,7 +717,7 @@ pub fn run() {
         match event {
             // Clicking the Dock icon after closing to the tray must bring the window back.
             #[cfg(target_os = "macos")]
-            RunEvent::Reopen { has_visible_windows: false, .. } => tray::show_main(app),
+            RunEvent::Reopen { has_visible_windows: false, .. } => tray::show_main(app.handle()),
             RunEvent::Exit => backend.kill(),
             _ => {}
         }
