@@ -680,6 +680,7 @@ pub fn run() {
             tray::tray_menu_close,
             tray::reveal_main_window,
             tray::open_session_in_main,
+            tray::window_fullscreen,
         ]);
     #[cfg(mobile)]
     let builder = builder

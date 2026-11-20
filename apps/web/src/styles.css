@@ -204,8 +204,14 @@ body { margin: 0; overflow: hidden; overscroll-behavior: none; }
 
 /* Desktop title bar: draggable chrome, interactive children opt out. */
 .titlebar { -webkit-user-select: none; user-select: none; }
-/* Phones draw edge to edge; keep the bar below the status bar / notch (0 on desktop). */
+/* Phones draw edge to edge; keep the bar below the status bar / notch (0 elsewhere). */
 .titlebar { padding-top: var(--safe-top); }
+/* macOS: the window's title bar area *is* this bar, so the webview's safe-area inset (the same strip, reported by
+   AppKit because the window uses a full-size content view) must not be added a second time — otherwise the bar is
+   a title bar taller than the traffic lights and everything sits lower than them. The lights start at x=16 and end
+   at x=76, so the controls clear them; a full-screen title bar takes the lights away and the controls move into the
+   space they leave (`--chrome-inset` is published by lib/fullscreen.ts). */
+.tauri-mac .titlebar { padding-top: 0; padding-left: var(--chrome-inset, 84px); }
 .titlebar button, .titlebar input, .titlebar a, .titlebar [data-no-drag] { -webkit-app-region: no-drag; }
 
 /* Thinking-effort slider */
@@ -556,14 +562,15 @@ html[data-entering] #root { animation: app-in 0.7s cubic-bezier(0.2, 0.8, 0.2, 1
 	}
 }
 
-/* macOS frameless window: the native window is transparent, the web surface
-   gets rounded corners and clips its children (the splash covers it too). */
-html.tauri-mac,
-html.tauri-mac body {
+/* macOS frameless windows (the tray panel and the tray menu): the native window is transparent, so the web surface
+   gets rounded corners and clips its children (the splash covers it too). The main window is decorated — AppKit
+   draws and clips its rounded corners — and marks itself `native-chrome`, so it must not round a second time. */
+html.tauri-mac:not(.native-chrome),
+html.tauri-mac:not(.native-chrome) body {
 	background: transparent !important;
 }
-html.tauri-mac #root,
-html.tauri-mac #splash {
+html.tauri-mac:not(.native-chrome) #root,
+html.tauri-mac:not(.native-chrome) #splash {
 	border-radius: 12px;
 	overflow: hidden;
 }

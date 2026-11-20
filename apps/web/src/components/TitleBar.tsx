@@ -10,12 +10,6 @@ import { call, NO_SUBAGENTS, pluginActive, toggleSubagentPanel, toggleWorkbenchK
 import { TURN_DONE_EVENT } from "../lib/notify.ts";
 import { Flame } from "./ui.tsx";
 
-/**
- * Room for the macOS traffic lights that AppKit draws over the title bar (they start at x=16, are 52pt wide, plus a
- * gap before our own controls).
- */
-const MACOS_TRAFFIC_LIGHT_INSET = 78;
-
 /** The brand flame burns brighter while the agent works and flares once when a turn finishes. */
 function BrandFlame({ live }: { live: boolean }) {
 	const [flare, setFlare] = useState(0);
@@ -333,8 +327,8 @@ export function TitleBar({ onToggleSidebar, bare }: { onToggleSidebar?: () => vo
 
 	return (
 		<header
-			// The macOS traffic lights are drawn by AppKit over the content; leave them their corner.
-			style={nativeControls ? { paddingLeft: MACOS_TRAFFIC_LIGHT_INSET } : undefined}
+			// `.tauri-mac .titlebar` in styles.css clears the macOS traffic lights (and moves the controls into
+			// their place in full screen, where AppKit hides them).
 			className="titlebar relative z-30 flex min-h-11 shrink-0 items-center gap-2 border-b hairline bg-ink-950/70 pl-2 backdrop-blur"
 			data-tauri-drag-region
 		>

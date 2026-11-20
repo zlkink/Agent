@@ -287,6 +287,17 @@ fn hide_main_to_tray(app: &AppHandle) {
     hide_main(app);
 }
 
+/// Whether the window is filling the screen (a native full-screen Space, or zoomed).
+///
+/// The page asks on load, on resize and on focus: in a full-screen Space AppKit hides the traffic lights (they only
+/// slide over the content while the pointer is at the top), so the title bar's own controls move into the place the
+/// lights leave instead of keeping an empty gap.
+#[tauri::command]
+pub fn window_fullscreen(app: AppHandle) -> bool {
+    let Some(window) = app.get_webview_window(MAIN) else { return false };
+    window.is_fullscreen().unwrap_or(false) || window.is_maximized().unwrap_or(false)
+}
+
 pub fn on_window_event(window: &Window, event: &WindowEvent) {
     let app = window.app_handle();
     match event {
