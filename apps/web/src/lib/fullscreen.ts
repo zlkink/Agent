@@ -6,10 +6,14 @@
  * the screen without creating a Space and closes to the tray like any other window.
  *
  * Two consequences are handled here:
- * - the mode auto-hides the menu bar, which slides back down over the top edge of the window — exactly where the
+ * - the mode auto-hides the menu bar, which slides back down over the top edge of the window — right where the
  *   window buttons are — so the title bar reserves that band (`--fullscreen-top`) to stay clickable;
- * - the window itself owns the state (the shell drops its resizable style bit while the mode is on), so it is read
- *   back from the shell after every toggle, on load and whenever the window regains focus instead of being cached.
+ * - the window itself owns the state, so it is read back from the shell after every toggle, on load and whenever
+ *   the window regains focus instead of being cached here.
+ *
+ * The band height comes from `screen.availTop` (37 on a notched MacBook); `window.screenY` looks like it could
+ * detect the overlap, but WebKit reports the screen height there for every window, so the shell has to say whether
+ * the window is covering the screen.
  */
 export function isMacPlatform(): boolean {
 	return /mac/i.test(String(navigator.platform || navigator.userAgent));
@@ -25,16 +29,32 @@ let fullscreen = false;
 function menuBarInset(): number {
 	const top = Number((window.screen as Screen & { availTop?: number }).availTop);
 	if (Number.isFinite(top) && top > 0) return Math.round(top);
-	// A WebView without `availTop` still has to clear the classic 25pt menu bar over the button row.
-	return 25;
+	// A WebView without `availTop` still has to clear the classic 24pt menu bar over the button row.
+	return 24;
+}
+
+/**
+ * Whether the window covers the whole screen, i.e. the menu bar is layered over its top edge.
+ *
+ * This is measured instead of remembered: a full-screen window is exactly as tall as the screen (a windowed or
+ * zoomed one is shorter — it sits below the menu bar), so the reserved band stays correct even when the window
+ * changed mode behind our back, and `resize` fires as it changes.
+ */
+function coversScreen(): boolean {
+	const height = Number(window.screen.height);
+	return Number.isFinite(height) && height > 0 && window.innerHeight >= height - 1;
+}
+
+/** Publishes the reserved band for the current window geometry. */
+function applyBand(): void {
+	const band = coversScreen() ? menuBarInset() : 0;
+	const root = document.documentElement;
+	if (band > 0) root.style.setProperty(TOP_VAR, `${band}px`);
+	else root.style.removeProperty(TOP_VAR);
 }
 
 function publish(on: boolean): void {
-	// Reserve the menu-bar band, then let the title bar draw the matching glyph.
-	const top = on ? menuBarInset() : 0;
-	const root = document.documentElement;
-	if (top > 0) root.style.setProperty(TOP_VAR, `${top}px`);
-	else root.style.removeProperty(TOP_VAR);
+	applyBand();
 	if (fullscreen === on) return;
 	fullscreen = on;
 	for (const fn of listeners) fn(on);
@@ -74,6 +94,9 @@ export function installFullscreenSync(): void {
 	void syncPlatformFullscreen();
 	// A tray restore and the system menu both come back through a focus change.
 	window.addEventListener("focus", () => void syncPlatformFullscreen());
+	// The band follows the window size, so it is right the moment the window covers the screen — even before (or
+	// without) the shell reporting the mode.
+	window.addEventListener("resize", applyBand);
 	document.addEventListener("visibilitychange", () => {
 		if (document.visibilityState === "visible") void syncPlatformFullscreen();
 	});
@@ -82,8 +105,13 @@ export function installFullscreenSync(): void {
 /** Toggles full screen (macOS) or maximize, and mirrors the state the shell reports. */
 export async function togglePlatformFullscreen(): Promise<void> {
 	if (isMacPlatform()) {
-		const { invoke } = await import("@tauri-apps/api/core");
-		publish((await invoke<boolean>("toggle_simple_fullscreen")) === true);
+		try {
+			const { invoke } = await import("@tauri-apps/api/core");
+			publish((await invoke<boolean>("toggle_simple_fullscreen")) === true);
+		} catch {
+			// A failed call still has to leave the band and the glyph describing the real window.
+			await syncPlatformFullscreen();
+		}
 		return;
 	}
 	const { getCurrentWindow } = await import("@tauri-apps/api/window");
