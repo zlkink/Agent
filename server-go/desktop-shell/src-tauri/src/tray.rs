@@ -235,54 +235,92 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
-/// Waits (off the main thread) until the window has stopped moving. A full-screen transition animates for up to a
-/// second, AppKit drops a hide issued mid-animation, and tao clears its own full-screen flag the moment the call is
-/// made — so the frame is the only honest signal: it changes on every animation step and then stays put.
+/// Set while a close is waiting for the window to leave its Space.
 #[cfg(target_os = "macos")]
-async fn wait_until_settled(window: &WebviewWindow) {
-    let mut last = window.inner_size().ok();
-    let mut quiet = 0;
-    for _ in 0..150 {
-        tokio::time::sleep(Duration::from_millis(20)).await;
-        let size = window.inner_size().ok();
-        if size == last {
-            quiet += 1;
-            if quiet >= 10 {
-                return;
-            }
-        } else {
-            quiet = 0;
-            last = size;
-        }
+static HIDE_AFTER_FULLSCREEN_EXIT: AtomicBool = AtomicBool::new(false);
+
+/// How long to wait for AppKit's exit notification before hiding anyway, so an interrupted transition cannot make
+/// the close button do nothing.
+#[cfg(target_os = "macos")]
+const FULLSCREEN_EXIT_TIMEOUT: Duration = Duration::from_secs(3);
+
+/// Hides the window once AppKit has really left the Space.
+///
+/// AppKit re-shows the window when the exit transition finishes and lands back on its Space, so a hide issued during
+/// the transition is undone — which is what made closing in full screen leave the window sitting there. tao has
+/// already cleared its own full-screen flag by then, so only this notification marks the end.
+#[cfg(target_os = "macos")]
+pub fn install_fullscreen_exit_observer(app: &AppHandle) -> tauri::Result<()> {
+    use objc2_app_kit::{NSWindow, NSWindowDidExitFullScreenNotification};
+    use objc2_foundation::{NSNotification, NSNotificationCenter};
+
+    let Some(window) = app.get_webview_window(MAIN) else { return Ok(()) };
+    let pointer = window.ns_window()?;
+    if pointer.is_null() {
+        return Ok(());
     }
+    let ns_window: &NSWindow = unsafe { &*pointer.cast::<NSWindow>() };
+    let app = app.clone();
+    let block = block2::RcBlock::new(move |_: std::ptr::NonNull<NSNotification>| {
+        if HIDE_AFTER_FULLSCREEN_EXIT.swap(false, Ordering::SeqCst) {
+            if let Some(w) = app.get_webview_window(MAIN) {
+                let _ = w.hide();
+            }
+            let _ = app.hide();
+        }
+    });
+    let observer = unsafe {
+        NSNotificationCenter::defaultCenter().addObserverForName_object_queue_usingBlock(
+            Some(NSWindowDidExitFullScreenNotification),
+            Some(ns_window),
+            None,
+            &block,
+        )
+    };
+    // The window and the app live as long as the process, so the observer never needs removing.
+    std::mem::forget(observer);
+    Ok(())
 }
 
-/// Hides the main window to the menu bar. Anything the window filled has to be given back first so a restore comes
-/// back as a normal window: a native Space outlives a hidden window (Mission Control keeps showing it as a black
-/// screen) and a zoomed window would come back covering the screen.
 fn hide_main_to_tray(app: &AppHandle) {
     #[cfg(target_os = "macos")]
     {
         if let Some(window) = app.get_webview_window(MAIN) {
-            // Leaving a Space animates and AppKit ignores a hide issued while it does, which left the window sitting
-            // there in its windowed frame: "close" looked like "leave full screen". Give the screen back, wait for the
-            // window to stop moving, then hide — and check that it actually went away.
-            if window.is_fullscreen().unwrap_or(false) || window.is_maximized().unwrap_or(false) {
-                let _ = window.set_fullscreen(false);
-                let _ = window.unmaximize();
+            if window.is_fullscreen().unwrap_or(false) {
+                if HIDE_AFTER_FULLSCREEN_EXIT.swap(true, Ordering::SeqCst) {
+                    return;
+                }
+                if window.set_fullscreen(false).is_ok() {
+                    let app = app.clone();
+                    std::thread::spawn(move || {
+                        std::thread::sleep(FULLSCREEN_EXIT_TIMEOUT);
+                        if HIDE_AFTER_FULLSCREEN_EXIT.swap(false, Ordering::SeqCst) {
+                            if let Some(w) = app.get_webview_window(MAIN) {
+                                let _ = w.hide();
+                            }
+                            let _ = app.hide();
+                        }
+                    });
+                    return;
+                }
+                HIDE_AFTER_FULLSCREEN_EXIT.store(false, Ordering::SeqCst);
+            }
+            let _ = window.unmaximize();
+            let _ = window.hide();
+            // A hide issued while AppKit is switching Spaces is dropped silently: check and retry once.
+            if window.is_visible().unwrap_or(false) {
                 let app = app.clone();
-                tauri::async_runtime::spawn(async move {
-                    wait_until_settled(&window).await;
-                    let _ = window.hide();
-                    if window.is_visible().unwrap_or(false) {
-                        tokio::time::sleep(Duration::from_millis(200)).await;
-                        let _ = window.hide();
+                std::thread::spawn(move || {
+                    std::thread::sleep(Duration::from_millis(300));
+                    if let Some(w) = app.get_webview_window(MAIN) {
+                        if w.is_visible().unwrap_or(false) {
+                            let _ = w.hide();
+                        }
                     }
                     let _ = app.hide();
                 });
                 return;
             }
-            let _ = window.hide();
         }
         let _ = app.hide();
         return;

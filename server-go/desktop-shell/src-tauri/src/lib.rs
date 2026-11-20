@@ -650,6 +650,8 @@ pub fn run() {
         .on_window_event(tray::on_window_event)
         .setup(|app| {
             tray::init(app.handle())?;
+            #[cfg(target_os = "macos")]
+            tray::install_fullscreen_exit_observer(app.handle())?;
             // The window is created with a real title bar so macOS gets its traffic lights; Windows and Linux draw
             // their own buttons, so they drop the decorations again.
             #[cfg(not(target_os = "macos"))]
