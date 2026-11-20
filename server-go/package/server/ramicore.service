@@ -1,0 +1,21 @@
+[Unit]
+Description=RamiCore agent host (headless)
+Documentation=https://github.com/zlkink/Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@USER@
+WorkingDirectory=@PREFIX@
+EnvironmentFile=/etc/ramicore/ramicore.env
+# Node.js and the agent CLIs are commonly installed under /usr/local/bin.
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+ExecStart=@PREFIX@/ramicore -serve -addr ${RAMICORE_ADDR} -token ${RAMICORE_TOKEN} -web @PREFIX@/web -allow-write
+Restart=on-failure
+RestartSec=3
+KillMode=control-group
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

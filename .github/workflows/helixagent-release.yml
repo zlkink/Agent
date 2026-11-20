@@ -221,6 +221,27 @@ jobs:
           rm -rf "$OUT/portable"
           ls -lh "$OUT" "$OUT/installers"
 
+      - name: Assemble headless Linux server package
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -eu
+          STAGE="server-go/desktop-shell/src-tauri/bin"
+          OUT="server-go/build-artifacts"
+          SERVER="$OUT/server/RamiCore"
+          rm -rf "$OUT/server"
+          mkdir -p "$SERVER"
+          cp "$STAGE/RamiCore" "$SERVER/ramicore"
+          cp -R "$STAGE/web" "$SERVER/web"
+          cp -R "$STAGE/node" "$SERVER/node"
+          cp server-go/package/server/install.sh "$SERVER/install.sh"
+          cp server-go/package/server/ramicore.service "$SERVER/ramicore.service"
+          cp server-go/package/server/README.md "$SERVER/README.md"
+          chmod +x "$SERVER/ramicore" "$SERVER/install.sh"
+          tar -C "$OUT/server" -czf "$OUT/RamiCore-Server-Linux.x64.tar.gz" RamiCore
+          rm -rf "$OUT/server"
+          ls -lh "$OUT/RamiCore-Server-Linux.x64.tar.gz"
+
       - uses: actions/upload-artifact@v7
         with:
           name: ramicore-${{ matrix.os }}-${{ matrix.goarch }}
