@@ -205,9 +205,7 @@ body { margin: 0; overflow: hidden; overscroll-behavior: none; }
 /* Desktop title bar: draggable chrome, interactive children opt out. */
 .titlebar { -webkit-user-select: none; user-select: none; }
 /* Phones draw edge to edge; keep the bar below the status bar / notch (0 on desktop). */
-/* In macOS simple full screen the auto-hidden menu bar slides down over the top of the window, right over the
-   window buttons; the shell publishes that band as --fullscreen-top so they stay clickable. */
-.titlebar { padding-top: calc(var(--safe-top) + var(--fullscreen-top, 0px)); }
+.titlebar { padding-top: var(--safe-top); }
 .titlebar button, .titlebar input, .titlebar a, .titlebar [data-no-drag] { -webkit-app-region: no-drag; }
 
 /* Thinking-effort slider */

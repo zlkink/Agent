@@ -220,67 +220,46 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
-/// True while the main window sits in the borderless "simple" full screen. tao drops `NSWindowStyleMaskResizable`
-/// for as long as that mode lasts and restores the saved mask on the way out, so the mask itself is the state.
-/// Caching it in a flag went stale as soon as anything else moved the window between modes: tao refuses a change
-/// it is already in, and the system menu / green button can enter a native Space behind our back.
-fn in_simple_fullscreen(window: &WebviewWindow) -> bool {
-    !window.is_resizable().unwrap_or(true)
-}
-
-/// Blocks (never on the main thread) until the window is back in its windowed frame, so hiding or minimizing acts
-/// on the real window instead of the screen-sized one.
+/// Blocks (never on the main thread) until a native full-screen Space has been left, so hiding or minimizing acts on
+/// the real window instead of the screen-sized one.
 #[cfg(target_os = "macos")]
 async fn wait_until_windowed(window: &WebviewWindow) {
     for _ in 0..100 {
-        if !window.is_fullscreen().unwrap_or(false) && !in_simple_fullscreen(window) {
+        if !window.is_fullscreen().unwrap_or(false) {
             return;
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
 }
 
-/// Default window size, kept in step with `tauri.conf.json`.
-const WINDOW_SIZE: (f64, f64) = (1280.0, 820.0);
-
-/// Leaving full screen restores the frame tao saved on the way in, which is screen-sized when the window was
-/// already filling the screen (a zoomed window, a Space that was left first, an older build). A restore from the
-/// tray would then come back maximized, so put a normal window back whenever the frame covers the monitor.
+/// Waits off the main thread until a maximized window has given the screen back.
 #[cfg(target_os = "macos")]
-fn ensure_windowed_size(window: &WebviewWindow) {
-    let (Ok(size), Ok(Some(monitor)), Ok(scale)) = (window.inner_size(), window.current_monitor(), window.scale_factor()) else {
-        return;
-    };
-    let mscale = monitor.scale_factor();
-    let msize = monitor.size();
-    let (width, height) = (size.width as f64 / scale, size.height as f64 / scale);
-    let (monitor_w, monitor_h) = (msize.width as f64 / mscale, msize.height as f64 / mscale);
-    if width < monitor_w - 8.0 || height < monitor_h - 8.0 {
-        return;
+async fn wait_until_restored(window: &WebviewWindow) {
+    for _ in 0..50 {
+        if !window.is_maximized().unwrap_or(false) {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
     }
-    let _ = window.set_size(tauri::LogicalSize::new(WINDOW_SIZE.0, WINDOW_SIZE.1));
-    let _ = window.center();
 }
 
-/// Hides the main window to the menu bar. Both full-screen modes have to be left first: a native Space outlives a
-/// hidden window (Mission Control keeps showing it as a black screen) and the borderless mode keeps the Dock and
-/// menu bar auto-hidden, so the window would come back still covering the screen instead of sitting in the tray as
-/// a normal window.
+/// Hides the main window to the menu bar. Whatever the window filled has to be given back first so a restore comes
+/// back as a normal window: a native Space outlives a hidden window (Mission Control keeps showing it as a black
+/// screen) and a maximized window would come back covering the screen.
 fn hide_main_to_tray(app: &AppHandle) {
     #[cfg(target_os = "macos")]
     {
         if let Some(window) = app.get_webview_window(MAIN) {
             let native = window.is_fullscreen().unwrap_or(false);
-            if native || in_simple_fullscreen(&window) {
+            if native || window.is_maximized().unwrap_or(false) {
                 if native {
                     let _ = window.set_fullscreen(false);
-                } else {
-                    let _ = window.set_simple_fullscreen(false);
                 }
                 let app = app.clone();
                 tauri::async_runtime::spawn(async move {
                     wait_until_windowed(&window).await;
-                    ensure_windowed_size(&window);
+                    let _ = window.unmaximize();
+                    wait_until_restored(&window).await;
                     let _ = window.hide();
                     let _ = app.hide();
                 });
@@ -295,44 +274,44 @@ fn hide_main_to_tray(app: &AppHandle) {
     #[cfg(not(target_os = "macos"))]
     hide_main(app);
 }
-/// Toggles the borderless full screen (no native Space, so closing to the tray leaves nothing behind) and reports
-/// whether the window covers the screen afterwards.
+/// Fills the screen's usable area (the menu bar and the Dock stay where they are) and back, reporting whether the
+/// window ends up filling it.
 ///
-/// A native Space is left first — it cannot be hidden to the tray — and the borderless mode is entered right after,
-/// so a single click always ends up covering the screen instead of only undoing a Space the green button or the
-/// system menu created.
+/// The borderless "simple" full screen used here before covered the menu bar strip: the auto-hidden menu bar slid
+/// back down over the window buttons so they could not be clicked, and macOS dropped the style bit that makes
+/// `minimize:` work. Filling the work area keeps the title bar exactly where a normal window has it — same look in
+/// both states, nothing layered over it, native minimize and close — and creates no Space, so closing to the tray
+/// still leaves nothing behind in Mission Control.
 #[tauri::command]
-pub async fn toggle_simple_fullscreen(app: AppHandle) -> Result<bool, String> {
+pub async fn toggle_fullscreen(app: AppHandle) -> Result<bool, String> {
     let Some(window) = app.get_webview_window(MAIN) else { return Err("no main window".into()) };
+    // A native full-screen Space still has to go first: it cannot be hidden to the tray.
     #[cfg(target_os = "macos")]
     {
         if window.is_fullscreen().unwrap_or(false) {
             window.set_fullscreen(false).map_err(|e| e.to_string())?;
             wait_until_windowed(&window).await;
-            window.set_simple_fullscreen(true).map_err(|e| e.to_string())?;
-            return Ok(true);
         }
     }
-    let on = !in_simple_fullscreen(&window);
-    window.set_simple_fullscreen(on).map_err(|e| e.to_string())?;
+    let on = !window.is_maximized().unwrap_or(false);
+    if on {
+        window.maximize().map_err(|e| e.to_string())?;
+    } else {
+        window.unmaximize().map_err(|e| e.to_string())?;
+    }
     Ok(on)
 }
 
-/// Whether the window covers the screen right now, in either mode. A native Space hides the menu bar over the top of
-/// the window just like the borderless mode does, so the reserved band and the button glyph follow both; only the
-/// borderless one survives being hidden to the tray.
-///
-/// The page asks for this on load and whenever the window regains focus, and the answer comes from the window itself
-/// (tao drops `NSWindowStyleMaskResizable` in the borderless mode), so nothing here can drift out of date.
+/// Whether the window fills the screen right now. The page asks on load and on every focus change, and the answer
+/// comes from the window itself, so the button glyph cannot drift out of date.
 #[tauri::command]
-pub fn simple_fullscreen_state(app: AppHandle) -> bool {
+pub fn fullscreen_state(app: AppHandle) -> bool {
     let Some(window) = app.get_webview_window(MAIN) else { return false };
-    window.is_fullscreen().unwrap_or(false) || in_simple_fullscreen(&window)
+    window.is_fullscreen().unwrap_or(false) || window.is_maximized().unwrap_or(false)
 }
 
-/// Minimizes to the Dock. The borderless full screen drops the style bit that makes `miniaturize:` work (so the
-/// button looked usable but did nothing) and keeps the Dock auto-hidden, so the window leaves full screen first and
-/// then minimizes like any other window.
+/// Minimizes to the Dock. Only a native Space has to be left first (macOS refuses to minimize one); a window that
+/// merely fills the work area minimizes natively, which is the point of not covering the menu bar.
 #[tauri::command]
 pub async fn minimize_main_window(app: AppHandle) -> Result<(), String> {
     let Some(window) = app.get_webview_window(MAIN) else { return Err("no main window".into()) };
@@ -340,15 +319,8 @@ pub async fn minimize_main_window(app: AppHandle) -> Result<(), String> {
     {
         if window.is_fullscreen().unwrap_or(false) {
             window.set_fullscreen(false).map_err(|e| e.to_string())?;
-        } else if in_simple_fullscreen(&window) {
-            window.set_simple_fullscreen(false).map_err(|e| e.to_string())?;
-        } else {
-            return window.minimize().map_err(|e| e.to_string());
+            wait_until_windowed(&window).await;
         }
-        // Both modes animate back to the windowed frame and minimizing in the middle of it is ignored, so wait for
-        // the style mask (and the minimize button with it) to actually come back instead of guessing a delay.
-        wait_until_windowed(&window).await;
-        ensure_windowed_size(&window);
     }
     window.minimize().map_err(|e| e.to_string())
 }
