@@ -72,6 +72,7 @@ pub fn show_main(app: &AppHandle) {
     }
 }
 
+#[cfg(not(target_os = "macos"))]
 fn hide_main(app: &AppHandle) {
     if let Some(w) = app.get_webview_window(MAIN) {
         let _ = w.hide();
