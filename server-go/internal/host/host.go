@@ -1863,7 +1863,7 @@ func (h *Host) dispatch(method string, raw json.RawMessage) (any, error) {
 	switch method {
 	case "host.info":
 		return map[string]any{
-			"version": "0.30.39-ramicore", "piVersion": h.cfg.PIVersion, "protocol": protocolVersion,
+			"version": "0.30.40-ramicore", "piVersion": h.cfg.PIVersion, "protocol": protocolVersion,
 			"cwd": h.cfg.Cwd, "platform": runtime.GOOS,
 		}, nil
 

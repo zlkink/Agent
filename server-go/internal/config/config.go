@@ -58,6 +58,10 @@ func Home() string {
 func Load() (*Config, error) {
 	file := filepath.Join(Home(), "config.json")
 	raw, err := os.ReadFile(file)
+	// A fresh install has no config yet; an empty file and no file both mean "no gateways".
+	if errors.Is(err, os.ErrNotExist) {
+		return &Config{}, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -192,12 +196,14 @@ func Masked(gws []Gateway) []any {
 func MutateGateways(fn func(gws []map[string]any) ([]map[string]any, error)) ([]Gateway, error) {
 	file := filepath.Join(Home(), "config.json")
 	raw, err := os.ReadFile(file)
-	if err != nil {
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
-	var root map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &root); err != nil {
-		return nil, err
+	root := map[string]json.RawMessage{}
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &root); err != nil {
+			return nil, err
+		}
 	}
 	var list []map[string]any
 	if v, ok := root["gateways"]; ok && len(v) > 0 {
@@ -227,6 +233,9 @@ func MutateGateways(fn func(gws []map[string]any) ([]map[string]any, error)) ([]
 		return nil, err
 	}
 	tmp := file + ".tmp"
+	if err := os.MkdirAll(Home(), 0o700); err != nil {
+		return nil, err
+	}
 	if err := os.WriteFile(tmp, append(out, '\n'), 0o600); err != nil {
 		return nil, err
 	}
