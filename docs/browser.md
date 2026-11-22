@@ -182,6 +182,15 @@ src/
 | `lang` | 系统语言 | `Accept-Language` 与浏览器界面语言 |
 | `allowEval` | true | 是否允许 `browser_eval` |
 
+### 7.1 接管运行中的 Chrome（`mode = system`）
+
+Chrome 144 起「允许远程调试」是**授权式**服务：`/json`、`/json/list`、`/json/version` 一律 404，唯一入口是 `DevToolsActivePort` 第二行的 `/devtools/browser/<uuid>` 上的 WebSocket；首次连接时 Chrome 会弹确认，握手就停在那里——表现为「没反应」而不是报错。
+
+- 连接顺序：设置里的 `wsPath` → 自动读 `DevToolsActivePort` → 经典 `--remote-debugging-port` 的 `/json/version`
+- 等待期间状态每 5 秒刷新「已等待 Ns」；180 s 超时后错误里带三行诊断：文件内容、端口是否监听、`/json/version` 的状态码
+- 连接断开会回到 `stopped` 而不是 `error`：下一次工具调用重新读文件重连，所以 Chrome 重启调试服务换了 uuid 也能自愈
+- 独立排查：`node scripts/probe-chrome-ws.mjs [超时秒数]`，退出码 `0` 连接成功 / `2` 还在等授权 / `3` 没有端点 / `4` 端口被别的程序占用
+
 ## 8. 手机
 
 **远程模式**（手机连电脑上的 Prometheus）：浏览器跑在电脑上。手机屏幕窄（≤700 px）且是触屏时，客户端上报 `mobile`，插件用 `Emulation.setDeviceMetricsOverride { mobile: true }`、`setTouchEmulationEnabled` 和手机版 User-Agent 排版，网页按手机版显示；手指以真实触摸事件（`Input.dispatchTouchEvent`）送给页面，点按、滑动、双指缩放都由 Chromium 自己合成。设置里可以关掉（`mobile`）。

@@ -144,6 +144,27 @@ export function ConnectorsView() {
 	const [systemBrowser, setSystemBrowser] = useState(false);
 	const [debugPort, setDebugPort] = useState(9222);
 	const [wsPath, setWsPath] = useState("");
+	const savedPort = useRef(9222);
+	const savedWsPath = useRef("");
+	// Persist the endpoint fields a moment after typing stops. Saving only on blur lost the edit
+	// whenever the dialog was closed without leaving the field (Esc, or a click straight on the
+	// overlay), which showed up as "the panel says 53197 but the file still says 9222".
+	useEffect(() => {
+		if (debugPort === savedPort.current) return;
+		const timer = setTimeout(() => {
+			savedPort.current = debugPort;
+			void browserCall("settings.set", { settings: { debugPort } }).catch(() => {});
+		}, 600);
+		return () => clearTimeout(timer);
+	}, [debugPort]);
+	useEffect(() => {
+		if (wsPath === savedWsPath.current) return;
+		const timer = setTimeout(() => {
+			savedWsPath.current = wsPath;
+			void browserCall("settings.set", { settings: { wsPath } }).catch(() => {});
+		}, 600);
+		return () => clearTimeout(timer);
+	}, [wsPath]);
 
 	const load = useCallback(async () => {
 		const [p, c] = await Promise.all([pluginCall<ProviderInfo[]>("connectors", "providers"), pluginCall<Connection[]>("connectors", "list")]);
@@ -157,8 +178,10 @@ export function ConnectorsView() {
 		void browserCall<{ settings: { mode: string; debugPort?: number; wsPath?: string } }>("state")
 			.then((r) => {
 				setSystemBrowser(r.settings.mode === "system");
-				setDebugPort(r.settings.debugPort ?? 9222);
-				setWsPath(r.settings.wsPath ?? "");
+				savedPort.current = r.settings.debugPort ?? 9222;
+				savedWsPath.current = r.settings.wsPath ?? "";
+				setDebugPort(savedPort.current);
+				setWsPath(savedWsPath.current);
 			})
 			.catch(() => {});
 	}, []);
@@ -226,7 +249,10 @@ export function ConnectorsView() {
 								max={65535}
 								value={debugPort}
 								onChange={(e) => setDebugPort(Number(e.target.value) || 9222)}
-								onBlur={() => void setSystemBrowserMode(true, debugPort)}
+								onBlur={() => {
+									savedPort.current = debugPort;
+									void setSystemBrowserMode(true, debugPort);
+								}}
 								className="w-24 rounded-md border border-ink-700 bg-transparent px-2 py-1 font-mono text-xs text-ink-200"
 							/>
 						</label>
@@ -238,7 +264,10 @@ export function ConnectorsView() {
 								value={wsPath}
 								placeholder="/devtools/browser/<uuid>"
 								onChange={(e) => setWsPath(e.target.value)}
-								onBlur={() => void saveWsPath(wsPath.trim())}
+								onBlur={() => {
+									savedWsPath.current = wsPath.trim();
+									void saveWsPath(wsPath.trim());
+								}}
 								className="w-full rounded-md border border-ink-700 bg-transparent px-2 py-1 font-mono text-xs text-ink-200"
 							/>
 							<span className="block text-[11px] leading-relaxed text-ink-500">{t("wsPathHint")}</span>

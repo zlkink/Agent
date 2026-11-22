@@ -321,6 +321,7 @@ export class BrowserCore implements TabHost {
 		this.startingHint = undefined;
 		this.needsRemoteDebugging = false;
 		this.changed();
+		let ticker: ReturnType<typeof setInterval> | undefined;
 		try {
 			// Three ways in, most-version-proof first:
 			//   1. the "WebSocket path" setting (DevToolsActivePort's second line, pasted by hand);
@@ -361,7 +362,18 @@ export class BrowserCore implements TabHost {
 				wsUrl = meta.webSocketDebuggerUrl;
 				browser = meta.Browser ?? browser;
 			}
+			if (!wsUrl) throw new Error("没有可用的调试端点：DevToolsActivePort 不存在，也没填端口或 WebSocket 路径");
+			if (waitingForUser) {
+				const started = Date.now();
+				const what = manual ? "正在连接你填写的 WebSocket 路径" : "正在等待 Chrome 授权";
+				ticker = setInterval(() => {
+					const secs = Math.round((Date.now() - started) / 1000);
+					this.startingHint = `${what}：已等待 ${secs}s。若 Chrome 弹出「允许远程调试」，请点允许；没弹窗就去 chrome://inspect/#remote-debugging 取消勾选再勾上。`;
+					this.changed();
+				}, 5000);
+			}
 			const conn = await connectWebSocket(wsUrl!, waitingForUser ? 180_000 : 10_000);
+			if (ticker) clearInterval(ticker);
 			this.startingHint = undefined;
 			const version = (await conn.send("Browser.getVersion", {})) as { product?: string; userAgent?: string };
 			const userAgent = version.userAgent ?? "";
@@ -369,6 +381,11 @@ export class BrowserCore implements TabHost {
 			this.product = version.product ?? browser;
 			this.rawUa = userAgent;
 			this.ua = userAgent;
+			// Chrome regenerates DevToolsActivePort whenever its debugging server restarts (re-ticking
+			// chrome://inspect, an update, a crash). Treat a dropped socket as "stopped", not "error":
+			// the next tool call then re-reads the file and reconnects instead of staying broken
+			// until someone opens the panel and presses restart.
+			conn.onClose((reason) => this.onAttachedClosed(conn, reason));
 			conn.on((e) => this.onEvent(e));
 			await conn.send("Target.setDiscoverTargets", { discover: true });
 			await conn.send("Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: false, flatten: true });
@@ -382,15 +399,60 @@ export class BrowserCore implements TabHost {
 			await this.waitFirstTab();
 			this.updateScreencast();
 		} catch (err) {
+			if (ticker) clearInterval(ticker);
 			this.startingHint = undefined;
 			this.status = "error";
 			this.needsRemoteDebugging = this.mode === "system";
-			this.error = err instanceof Error ? err.message : String(err);
+			const raw = err instanceof Error ? err.message : String(err);
+			const diagnosis = await this.systemChromeDiagnosis(port);
+			this.error = `${raw}。诊断：${diagnosis}`;
 			this.changed();
+			this.deps.log(`连接系统 Chrome 失败：${this.error}`);
 			throw new UserFacingError(
-				`连接系统 Chrome 失败：${this.error}。请在 Chrome 打开 chrome://inspect/#remote-debugging，勾选“Allow remote debugging”，再重试；或在设置里填 DevToolsActivePort 的 /devtools/browser/<uuid>；或带 --remote-debugging-port=${port} 启动 Chrome。`,
+				/连接.*超时|timed out/i.test(raw)
+					? `连接系统 Chrome 超时：${raw}。端口在监听但握手没被放行，通常是 Chrome 正在等你确认：打开 chrome://inspect/#remote-debugging 保持页面前台，看到「允许远程调试」弹窗就点允许（或取消勾选再勾上重新授权）。诊断：${diagnosis}`
+					: `连接系统 Chrome 失败：${raw}。请在 Chrome 打开 chrome://inspect/#remote-debugging，勾选“Allow remote debugging”，再重试；或在设置里填 DevToolsActivePort 的 /devtools/browser/<uuid>；或带 --remote-debugging-port=${port} 启动 Chrome。诊断：${diagnosis}`,
 			);
 		}
+	}
+
+	/**
+	 * The user's Chrome dropped the debugging connection (server restarted, approval revoked, Chrome quit).
+	 * Marking it "stopped" rather than "error" is the point: `ensure()` re-attaches on the next tool call
+	 * and therefore re-reads DevToolsActivePort, which is what carries the new port and uuid.
+	 */
+	private onAttachedClosed(conn: CdpConnection, reason: string): void {
+		if (this.launched?.conn !== conn) return;
+		this.launched = undefined;
+		this.clearTabs();
+		this.error = undefined;
+		this.startingHint = undefined;
+		this.status = "stopped";
+		this.needsRemoteDebugging = this.mode === "system";
+		this.deps.log(`系统 Chrome 的调试连接已断开（${reason}）；下次使用会重新读 DevToolsActivePort 并重连`);
+		this.changed();
+	}
+
+	/** Best-effort one-shot facts for a failed "system" attach: what the file says, is the port there, what /json answers. */
+	private async systemChromeDiagnosis(port: number): Promise<string> {
+		const parts: string[] = [];
+		let fromFile = "DevToolsActivePort：找不到（chrome://inspect/#remote-debugging 勾选「允许远程调试」后才生成）";
+		for (const f of devToolsActivePortFiles()) {
+			const text = await readFile(f, "utf8").catch(() => undefined);
+			if (!text) continue;
+			const lines = text.trim().split(String.fromCharCode(10)).map((l) => l.trim()).filter(Boolean);
+			fromFile = `DevToolsActivePort：${lines.join("  ")}（${f}）`;
+			break;
+		}
+		parts.push(fromFile);
+		const active = await readDevToolsActivePort();
+		const probePort = active?.port ?? port;
+		parts.push(`端口 ${probePort}：${(await portOpen(probePort).catch(() => false)) ? "在监听" : "没有监听"}`);
+		const json = await fetch(`http://127.0.0.1:${probePort}/json/version`, { signal: AbortSignal.timeout(1500) })
+			.then((r) => (r.status === 404 ? "HTTP 404（144+ 授权式服务没有 /json，正常）" : `HTTP ${r.status}`))
+			.catch(() => "没有响应");
+		parts.push(`/json/version：${json}`);
+		return parts.join("；");
 	}
 
 	private async waitFirstTab(): Promise<void> {

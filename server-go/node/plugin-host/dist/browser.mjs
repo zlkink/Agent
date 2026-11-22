@@ -1752,6 +1752,7 @@ var BrowserCore = class {
     this.startingHint = void 0;
     this.needsRemoteDebugging = false;
     this.changed();
+    let ticker;
     try {
       const manual = parseWsTarget(this.deps.settings().wsPath);
       const active = manual ? void 0 : await readDevToolsActivePort();
@@ -1784,7 +1785,18 @@ var BrowserCore = class {
         wsUrl = meta.webSocketDebuggerUrl;
         browser = meta.Browser ?? browser;
       }
+      if (!wsUrl) throw new Error("\u6CA1\u6709\u53EF\u7528\u7684\u8C03\u8BD5\u7AEF\u70B9\uFF1ADevToolsActivePort \u4E0D\u5B58\u5728\uFF0C\u4E5F\u6CA1\u586B\u7AEF\u53E3\u6216 WebSocket \u8DEF\u5F84");
+      if (waitingForUser) {
+        const started = Date.now();
+        const what = manual ? "\u6B63\u5728\u8FDE\u63A5\u4F60\u586B\u5199\u7684 WebSocket \u8DEF\u5F84" : "\u6B63\u5728\u7B49\u5F85 Chrome \u6388\u6743";
+        ticker = setInterval(() => {
+          const secs = Math.round((Date.now() - started) / 1e3);
+          this.startingHint = `${what}\uFF1A\u5DF2\u7B49\u5F85 ${secs}s\u3002\u82E5 Chrome \u5F39\u51FA\u300C\u5141\u8BB8\u8FDC\u7A0B\u8C03\u8BD5\u300D\uFF0C\u8BF7\u70B9\u5141\u8BB8\uFF1B\u6CA1\u5F39\u7A97\u5C31\u53BB chrome://inspect/#remote-debugging \u53D6\u6D88\u52FE\u9009\u518D\u52FE\u4E0A\u3002`;
+          this.changed();
+        }, 5e3);
+      }
       const conn = await connectWebSocket(wsUrl, waitingForUser ? 18e4 : 1e4);
+      if (ticker) clearInterval(ticker);
       this.startingHint = void 0;
       const version = await conn.send("Browser.getVersion", {});
       const userAgent = version.userAgent ?? "";
@@ -1792,6 +1804,7 @@ var BrowserCore = class {
       this.product = version.product ?? browser;
       this.rawUa = userAgent;
       this.ua = userAgent;
+      conn.onClose((reason) => this.onAttachedClosed(conn, reason));
       conn.on((e) => this.onEvent(e));
       await conn.send("Target.setDiscoverTargets", { discover: true });
       await conn.send("Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: false, flatten: true });
@@ -1806,15 +1819,54 @@ var BrowserCore = class {
       await this.waitFirstTab();
       this.updateScreencast();
     } catch (err) {
+      if (ticker) clearInterval(ticker);
       this.startingHint = void 0;
       this.status = "error";
       this.needsRemoteDebugging = this.mode === "system";
-      this.error = err instanceof Error ? err.message : String(err);
+      const raw = err instanceof Error ? err.message : String(err);
+      const diagnosis = await this.systemChromeDiagnosis(port);
+      this.error = `${raw}\u3002\u8BCA\u65AD\uFF1A${diagnosis}`;
       this.changed();
+      this.deps.log(`\u8FDE\u63A5\u7CFB\u7EDF Chrome \u5931\u8D25\uFF1A${this.error}`);
       throw new UserFacingError(
-        `\u8FDE\u63A5\u7CFB\u7EDF Chrome \u5931\u8D25\uFF1A${this.error}\u3002\u8BF7\u5728 Chrome \u6253\u5F00 chrome://inspect/#remote-debugging\uFF0C\u52FE\u9009\u201CAllow remote debugging\u201D\uFF0C\u518D\u91CD\u8BD5\uFF1B\u6216\u5728\u8BBE\u7F6E\u91CC\u586B DevToolsActivePort \u7684 /devtools/browser/<uuid>\uFF1B\u6216\u5E26 --remote-debugging-port=${port} \u542F\u52A8 Chrome\u3002`
+        /连接.*超时|timed out/i.test(raw) ? `\u8FDE\u63A5\u7CFB\u7EDF Chrome \u8D85\u65F6\uFF1A${raw}\u3002\u7AEF\u53E3\u5728\u76D1\u542C\u4F46\u63E1\u624B\u6CA1\u88AB\u653E\u884C\uFF0C\u901A\u5E38\u662F Chrome \u6B63\u5728\u7B49\u4F60\u786E\u8BA4\uFF1A\u6253\u5F00 chrome://inspect/#remote-debugging \u4FDD\u6301\u9875\u9762\u524D\u53F0\uFF0C\u770B\u5230\u300C\u5141\u8BB8\u8FDC\u7A0B\u8C03\u8BD5\u300D\u5F39\u7A97\u5C31\u70B9\u5141\u8BB8\uFF08\u6216\u53D6\u6D88\u52FE\u9009\u518D\u52FE\u4E0A\u91CD\u65B0\u6388\u6743\uFF09\u3002\u8BCA\u65AD\uFF1A${diagnosis}` : `\u8FDE\u63A5\u7CFB\u7EDF Chrome \u5931\u8D25\uFF1A${raw}\u3002\u8BF7\u5728 Chrome \u6253\u5F00 chrome://inspect/#remote-debugging\uFF0C\u52FE\u9009\u201CAllow remote debugging\u201D\uFF0C\u518D\u91CD\u8BD5\uFF1B\u6216\u5728\u8BBE\u7F6E\u91CC\u586B DevToolsActivePort \u7684 /devtools/browser/<uuid>\uFF1B\u6216\u5E26 --remote-debugging-port=${port} \u542F\u52A8 Chrome\u3002\u8BCA\u65AD\uFF1A${diagnosis}`
       );
     }
+  }
+  /**
+   * The user's Chrome dropped the debugging connection (server restarted, approval revoked, Chrome quit).
+   * Marking it "stopped" rather than "error" is the point: `ensure()` re-attaches on the next tool call
+   * and therefore re-reads DevToolsActivePort, which is what carries the new port and uuid.
+   */
+  onAttachedClosed(conn, reason) {
+    if (this.launched?.conn !== conn) return;
+    this.launched = void 0;
+    this.clearTabs();
+    this.error = void 0;
+    this.startingHint = void 0;
+    this.status = "stopped";
+    this.needsRemoteDebugging = this.mode === "system";
+    this.deps.log(`\u7CFB\u7EDF Chrome \u7684\u8C03\u8BD5\u8FDE\u63A5\u5DF2\u65AD\u5F00\uFF08${reason}\uFF09\uFF1B\u4E0B\u6B21\u4F7F\u7528\u4F1A\u91CD\u65B0\u8BFB DevToolsActivePort \u5E76\u91CD\u8FDE`);
+    this.changed();
+  }
+  /** Best-effort one-shot facts for a failed "system" attach: what the file says, is the port there, what /json answers. */
+  async systemChromeDiagnosis(port) {
+    const parts = [];
+    let fromFile = "DevToolsActivePort\uFF1A\u627E\u4E0D\u5230\uFF08chrome://inspect/#remote-debugging \u52FE\u9009\u300C\u5141\u8BB8\u8FDC\u7A0B\u8C03\u8BD5\u300D\u540E\u624D\u751F\u6210\uFF09";
+    for (const f of devToolsActivePortFiles()) {
+      const text2 = await readFile3(f, "utf8").catch(() => void 0);
+      if (!text2) continue;
+      const lines = text2.trim().split(String.fromCharCode(10)).map((l) => l.trim()).filter(Boolean);
+      fromFile = `DevToolsActivePort\uFF1A${lines.join("  ")}\uFF08${f}\uFF09`;
+      break;
+    }
+    parts.push(fromFile);
+    const active = await readDevToolsActivePort();
+    const probePort = active?.port ?? port;
+    parts.push(`\u7AEF\u53E3 ${probePort}\uFF1A${await portOpen(probePort).catch(() => false) ? "\u5728\u76D1\u542C" : "\u6CA1\u6709\u76D1\u542C"}`);
+    const json = await fetch(`http://127.0.0.1:${probePort}/json/version`, { signal: AbortSignal.timeout(1500) }).then((r) => r.status === 404 ? "HTTP 404\uFF08144+ \u6388\u6743\u5F0F\u670D\u52A1\u6CA1\u6709 /json\uFF0C\u6B63\u5E38\uFF09" : `HTTP ${r.status}`).catch(() => "\u6CA1\u6709\u54CD\u5E94");
+    parts.push(`/json/version\uFF1A${json}`);
+    return parts.join("\uFF1B");
   }
   async waitFirstTab() {
     for (let i = 0; i < 50 && !this.activeId; i++) await new Promise((r) => setTimeout(r, 100));
