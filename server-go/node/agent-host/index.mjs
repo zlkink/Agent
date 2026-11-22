@@ -167,6 +167,13 @@ function baseEnv(targetModel) {
 function restartQuery() {
   restartForModel = false;
   restartForThinking = false;
+  releaseQuery();
+}
+
+// The SDK keeps a Claude CLI process alive between turns with the project as its working directory, which locks the
+// folder on Windows. End the query when a turn finishes; the next prompt resumes the native session, so the history
+// survives without holding the project folder while idle.
+function releaseQuery() {
   const old = q;
   q = null;
   // The old input generator may be parked on this resolver; drop it so the
@@ -247,6 +254,7 @@ function ensureQuery() {
           emit({ type: 'done', result: '', isError: true, subtype: 'aborted', usage: {} });
         }
         busy = false;
+        releaseQuery();
       }
     }
   })();
@@ -337,6 +345,7 @@ async function handle(msg) {
         usage: msg.usage,
       });
       busy = false;
+      releaseQuery();
       return;
     }
 

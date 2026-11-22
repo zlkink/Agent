@@ -7,11 +7,11 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=@USER@
-WorkingDirectory=@PREFIX@
+WorkingDirectory=@HOME@
 EnvironmentFile=/etc/ramicore/ramicore.env
 # Node.js and the agent CLIs are commonly installed under /usr/local/bin.
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
-ExecStart=@PREFIX@/ramicore -serve -addr ${RAMICORE_ADDR} -token ${RAMICORE_TOKEN} -web @PREFIX@/web -allow-write
+ExecStart=@PREFIX@/ramicore -serve -addr ${RAMICORE_ADDR} -token ${RAMICORE_TOKEN} -web @PREFIX@/web -cwd @HOME@/RamiCore -allow-write
 Restart=on-failure
 RestartSec=3
 KillMode=control-group

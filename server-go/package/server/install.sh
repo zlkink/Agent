@@ -12,6 +12,8 @@ SRC=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 PREFIX="${PREFIX:-/opt/ramicore}"
 SERVICE_USER="${SERVICE_USER:-${SUDO_USER:-}}"
 SERVICE_USER="${SERVICE_USER:-root}"
+SERVICE_HOME=$(getent passwd "$SERVICE_USER" 2>/dev/null | cut -d: -f6)
+[ -n "$SERVICE_HOME" ] || SERVICE_HOME="/home/$SERVICE_USER"
 
 for f in ramicore web node; do
 	[ -e "$SRC/$f" ] || { echo "missing $f in $SRC" >&2; exit 1; }
@@ -26,6 +28,9 @@ install -m 0755 "$SRC/ramicore" "$PREFIX/ramicore"
 rm -rf "$PREFIX/web" "$PREFIX/node"
 cp -R "$SRC/web" "$PREFIX/web"
 cp -R "$SRC/node" "$PREFIX/node"
+# The default project lives in the service user's home; the process itself runs
+# from that home, so neither folder is held as a working directory.
+install -d -o "$SERVICE_USER" "$SERVICE_HOME/RamiCore"
 
 # Keep an existing token/address on upgrade; allow an explicit override.
 TOKEN="${RAMICORE_TOKEN:-}"
@@ -42,7 +47,7 @@ umask 077
 printf 'RAMICORE_TOKEN=%s\nRAMICORE_ADDR=%s\n' "$TOKEN" "$ADDR" > /etc/ramicore/ramicore.env
 chmod 600 /etc/ramicore/ramicore.env
 
-sed -e "s|@USER@|$SERVICE_USER|g" -e "s|@PREFIX@|$PREFIX|g" \
+sed -e "s|@USER@|$SERVICE_USER|g" -e "s|@PREFIX@|$PREFIX|g" -e "s|@HOME@|$SERVICE_HOME|g" \
 	"$SRC/ramicore.service" > /etc/systemd/system/ramicore.service
 chmod 644 /etc/systemd/system/ramicore.service
 

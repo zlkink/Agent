@@ -96,10 +96,17 @@ func (s *setup) NewSidecar(sessionID, cwd, mcpURL, mcpToken, staticContext, resu
 	if staticContext != "" {
 		env["PROMETHEUS_STATIC_CONTEXT"] = staticContext
 	}
+	// Run the sidecar from the app's own folder. Its process working directory
+	// would otherwise be the project folder and keep it locked on Windows; the
+	// SDK gets the real project through PROMETHEUS_CWD instead.
+	sidecarDir := filepath.Dir(s.script)
+	if s.script == "" {
+		sidecarDir = ""
+	}
 	return sidecar.Start(sidecar.StartOptions{
 		Node:   s.node,
 		Script: s.script,
-		Dir:    cwd,
+		Dir:    sidecarDir,
 		Env:    env,
 		OnStderr: func(line string) {
 			log.Printf("[sidecar] %s", line)

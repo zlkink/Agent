@@ -385,7 +385,12 @@ fn launch_target(app: &tauri::AppHandle) -> Result<Launch, String> {
         if let Some(pi) = runtimes::pi_dir(app) {
             extra_env.push(("PROMETHEUS_PI_DIR".to_string(), pi.into_os_string()));
         }
-        let args: Vec<std::ffi::OsString> = vec![
+        let home_dir = app.path().home_dir().ok();
+        let project = home_dir.as_ref().map(|home| home.join("RamiCore"));
+        if let Some(dir) = &project {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let mut args: Vec<std::ffi::OsString> = vec![
             "-serve".into(),
             "-addr".into(),
             "127.0.0.1:0".into(),
@@ -393,21 +398,20 @@ fn launch_target(app: &tauri::AppHandle) -> Result<Launch, String> {
             web.into_os_string(),
             "-allow-write".into(),
         ];
+        if let Some(dir) = &project {
+            args.push("-cwd".into());
+            args.push(dir.clone().into_os_string());
+        }
         return Ok(Launch {
             node: bin,
             entry: PathBuf::new(),
             args,
             env: vec![("PATH", path)],
             extra_env,
-            // Like the original server, run from the user's home, not from the
-            // install folder: a working directory inside it would keep the
-            // package locked for updates/deletion. The default project folder
-            // shown in the sidebar is ~/RamiCore.
-            cwd: app.path().home_dir().ok().map(|home| {
-                let dir = home.join("RamiCore");
-                let _ = std::fs::create_dir_all(&dir);
-                dir
-            }).or_else(|| std::env::current_dir().ok()),
+            // Run the host from the user's home, not from the install folder or the default project: a process
+            // working directory keeps that folder locked on Windows and it could not be deleted or moved. The default
+            // project is passed explicitly with -cwd.
+            cwd: home_dir.or_else(|| std::env::current_dir().ok()),
         });
     }
 
