@@ -635,6 +635,12 @@ fn local_supported() -> bool {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Explorer can start the app with the install folder as its working directory; Windows would then lock that
+    // folder against moves, updates and manual deletion. Nothing in the shell resolves paths relative to it.
+    #[cfg(target_os = "windows")]
+    if let Some(home) = std::env::var_os("USERPROFILE") {
+        let _ = std::env::set_current_dir(home);
+    }
     let backend = Backend::new();
     let builder = tauri::Builder::default();
     // Single-instance must be registered first so a second launch just surfaces the hidden window.

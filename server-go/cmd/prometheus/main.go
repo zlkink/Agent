@@ -96,17 +96,13 @@ func (s *setup) NewSidecar(sessionID, cwd, mcpURL, mcpToken, staticContext, resu
 	if staticContext != "" {
 		env["PROMETHEUS_STATIC_CONTEXT"] = staticContext
 	}
-	// Run the sidecar from the app's own folder. Its process working directory
-	// would otherwise be the project folder and keep it locked on Windows; the
-	// SDK gets the real project through PROMETHEUS_CWD instead.
-	sidecarDir := filepath.Dir(s.script)
-	if s.script == "" {
-		sidecarDir = ""
-	}
+	// Run the sidecar from a neutral runtime folder. Its process working directory would otherwise be the project
+	// folder (or the install folder) and keep it locked on Windows; the SDK gets the real project through
+	// PROMETHEUS_CWD instead.
 	return sidecar.Start(sidecar.StartOptions{
 		Node:   s.node,
 		Script: s.script,
-		Dir:    sidecarDir,
+		Dir:    idleDir(),
 		Env:    env,
 		OnStderr: func(line string) {
 			log.Printf("[sidecar] %s", line)
@@ -560,6 +556,17 @@ func runNPM(ctx context.Context, dir string, args ...string) error {
 	return cmd.Run()
 }
 
+// idleDir is the working directory for long-lived helpers (the agent sidecar and the plugin host). It must not be a
+// project folder or the install folder: Windows keeps a process working directory locked, so either one would be
+// impossible to delete or update while RamiCore runs.
+func idleDir() string {
+	dir := filepath.Join(config.Home(), "go-poc")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return os.TempDir()
+	}
+	return dir
+}
+
 func startPluginHost(node, cwd string) (string, func(), error) {
 	script := ""
 	candidates := []string{
@@ -587,7 +594,7 @@ func startPluginHost(node, cwd string) (string, func(), error) {
 	// bootstrap again after moving the package.
 	linkPIPackages(filepath.Dir(script))
 	cmd := exec.Command(node, script)
-	cmd.Dir = filepath.Dir(script)
+	cmd.Dir = idleDir()
 	env := append([]string(nil), os.Environ()...)
 	env = append(env, "PROMETHEUS_CWD="+cwd)
 	env = append(env, "PROMETHEUS_PLUGIN_DATA="+filepath.Join(config.Home(), "go-poc", "plugin-data"))
