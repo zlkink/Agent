@@ -133,6 +133,10 @@ export class BrowserCore implements TabHost {
 	private downloads: DownloadInfo[] = [];
 	private changeTimer: NodeJS.Timeout | undefined;
 	private idleTimer: NodeJS.Timeout;
+	/** Keeps the attached Chrome's WebSocket busy and notices it dying. */
+	private heartbeat: NodeJS.Timeout | undefined;
+	private reconnectTimer: NodeJS.Timeout | undefined;
+	private reconnects = 0;
 	private installing: AbortController | undefined;
 	private stopping = false;
 	private agentQueue: Promise<unknown> = Promise.resolve();
@@ -328,26 +332,27 @@ export class BrowserCore implements TabHost {
 
 	/**
 	 * Where to connect, most version-proof first: a hand-entered WebSocket path, then DevToolsActivePort
-	 * (chrome://inspect's authorized server — it serves no /json at all), then classic --remote-debugging-port.
-	 * `approval` marks the first two: Chrome holds that handshake until the user answers its prompt.
+	 * (chrome://inspect's authorized server — it serves no /json at all), then classic --remote-debugging-port,
+	 * then that authorized server through the port alone: it upgrades any path under /devtools/browser and
+	 * does not check the UUID, so a Chrome whose profile macOS keeps unreadable still opens without Full Disk
+	 * Access. `approval` marks the ones Chrome may hold until the user answers its prompt.
 	 */
 	private async systemEndpoint(port: number): Promise<{ wsUrl: string; approval: boolean; via: string; product: string }> {
 		const manual = parseWsTarget(this.deps.settings().wsPath);
 		if (manual) return { wsUrl: `ws://127.0.0.1:${manual.port ?? port}${manual.path}`, approval: true, via: "手填的 WebSocket 路径", product: "Chrome" };
 		const active = await readDevToolsActivePort();
 		if (active) return { wsUrl: active.wsUrl, approval: true, via: "DevToolsActivePort", product: "Chrome" };
-		const res = await fetch(`http://127.0.0.1:${port}/json/version`, { signal: AbortSignal.timeout(3000) }).catch((err: Error) => {
-			throw new Error(`端口 ${port} 上没有可用的 Chrome 调试服务（${err.message}）`);
-		});
-		if (res.status === 404) {
-			throw new Error(
-				`端口 ${port} 上的 Chrome 不提供 /json（144+ 的授权式服务只走 WebSocket）。打开 chrome://inspect/#remote-debugging 勾选允许远程调试让端口自动读取，或把 DevToolsActivePort 第二行填进「WebSocket 路径」。`,
-			);
-		}
-		if (!res.ok) throw new Error(`HTTP ${res.status}`);
-		const meta = (await res.json()) as { webSocketDebuggerUrl?: string; Browser?: string };
-		if (!meta.webSocketDebuggerUrl) throw new Error("调试端口没有返回 WebSocket 地址");
-		return { wsUrl: meta.webSocketDebuggerUrl, approval: false, via: "/json/version", product: meta.Browser ?? "Chrome" };
+		const res = await fetch(`http://127.0.0.1:${port}/json/version`, { signal: AbortSignal.timeout(3000) }).catch(() => undefined);
+		const meta = res?.ok ? ((await res.json().catch(() => ({}))) as { webSocketDebuggerUrl?: string; Browser?: string }) : {};
+		if (meta.webSocketDebuggerUrl) return { wsUrl: meta.webSocketDebuggerUrl, approval: false, via: "/json/version", product: meta.Browser ?? "Chrome" };
+		// 144+ answers /json with 404 (or closes the socket), but the debugging server takes a WebSocket on
+		// /devtools/browser with any UUID after it — the port is all it needs.
+		if (await portOpen(port)) return { wsUrl: `ws://127.0.0.1:${port}/devtools/browser`, approval: true, via: `端口 ${port} 的授权式调试服务`, product: "Chrome" };
+		throw new Error(
+			res
+				? `端口 ${port} 上的调试服务返回 HTTP ${res.status}，也不接受 WebSocket`
+				: `端口 ${port} 上没有可用的 Chrome 调试服务（连接被拒绝）。先在 chrome://inspect/#remote-debugging 勾选「允许远程调试」，并在设置里填 Chrome 实际监听的端口。`,
+		);
 	}
 
 	private beginStart(): void {
@@ -391,9 +396,32 @@ export class BrowserCore implements TabHost {
 		for (const t of targetInfos) if (t.type === "page") await conn.send("Target.attachToTarget", { targetId: t.targetId, flatten: true }).catch(() => {});
 		this.status = "running";
 		this.needsRemoteDebugging = false;
+		this.reconnects = 0;
+		this.startHeartbeat(conn);
 		this.changed();
 		await this.waitFirstTab();
 		this.updateScreencast();
+	}
+
+	/**
+	 * Chrome asks "allow remote debugging?" once per WebSocket, so the connection is kept, not rebuilt: a ping
+	 * every 30 s keeps intermediaries from dropping it and makes a dead socket obvious while the user is still
+	 * at the machine.
+	 */
+	private startHeartbeat(conn: CdpConnection): void {
+		clearInterval(this.heartbeat);
+		this.heartbeat = setInterval(() => {
+			if (conn.closed) return;
+			void conn.send("Browser.getVersion", {}, undefined, 15_000).catch(() => conn.close());
+		}, 30_000);
+		this.heartbeat.unref();
+	}
+
+	private stopHeartbeat(): void {
+		clearInterval(this.heartbeat);
+		this.heartbeat = undefined;
+		clearTimeout(this.reconnectTimer);
+		this.reconnectTimer = undefined;
 	}
 
 	private async failAttach(err: unknown, port: number): Promise<never> {
@@ -416,23 +444,54 @@ export class BrowserCore implements TabHost {
 		if (this.launched?.conn !== conn) return;
 		this.launched = undefined;
 		this.clearTabs();
+		this.stopHeartbeat();
 		this.error = undefined;
 		this.startingHint = undefined;
 		this.status = "stopped";
 		this.needsRemoteDebugging = this.mode === "system";
-		if (!this.stopping) this.deps.log(`系统 Chrome 的调试连接已断开（${reason}）；下次使用会重新读 DevToolsActivePort 并重连`);
 		this.changed();
+		if (this.stopping) return;
+		this.deps.log(`系统 Chrome 的调试连接已断开（${reason}）；马上重连`);
+		this.reconnectSoon();
+	}
+
+	/**
+	 * A dropped socket needs Chrome's approval again, and getting it now beats getting it on the next tool call
+	 * hours later. One retry: a denied prompt must not turn into a loop of prompts.
+	 */
+	private reconnectSoon(): void {
+		if (this.reconnects >= 2) {
+			this.deps.log("重连没成功，下次工具调用再试");
+			return;
+		}
+		this.reconnects++;
+		clearTimeout(this.reconnectTimer);
+		this.reconnectTimer = setTimeout(() => {
+			if (this.stopping || this.running) return;
+			void this.ensure().catch((err: Error) => this.deps.log(`重连系统 Chrome 失败：${err.message}`));
+		}, 1000);
+		this.reconnectTimer.unref();
 	}
 
 	/** The three facts worth printing when a "system" attach fails: the file, the port, what /json says. */
 	private async systemDiagnosis(port: number): Promise<string> {
 		let file = "DevToolsActivePort 不存在（chrome://inspect 勾选「允许远程调试」后才生成）";
+		let denied = false;
 		for (const f of devToolsActivePortFiles()) {
-			const text = await readFile(f, "utf8").catch(() => undefined);
+			let text: string | undefined;
+			try {
+				text = await readFile(f, "utf8");
+			} catch (err) {
+				const code = (err as NodeJS.ErrnoException).code;
+				if (code === "EPERM" || code === "EACCES") denied = true;
+				continue;
+			}
 			if (!text) continue;
 			file = `DevToolsActivePort = ${text.trim().split(String.fromCharCode(10)).map((l) => l.trim()).filter(Boolean).join(" ")}`;
+			denied = false;
 			break;
 		}
+		if (denied) file = "DevToolsActivePort 文件在，但 macOS 不让本进程读（profile 目录受保护；不用给完全磁盘访问权限，端口直连即可）";
 		const active = await readDevToolsActivePort();
 		const p = active?.port ?? port;
 		const listening = await portOpen(p).catch(() => false);
@@ -503,6 +562,8 @@ export class BrowserCore implements TabHost {
 	}
 
 	async stop(): Promise<void> {
+		this.stopHeartbeat();
+		this.reconnects = 0;
 		const l = this.launched;
 		if (!l) {
 			this.status = "stopped";
@@ -548,6 +609,9 @@ export class BrowserCore implements TabHost {
 	private async reapIdle(): Promise<void> {
 		const minutes = this.deps.settings().idleMinutes;
 		if (!minutes || !this.running || this.agent.busy || this.deps.watchers() > 0) return;
+		// Never hang up on the user's own Chrome: closing the socket costs them another "allow remote debugging"
+		// click next time, and the browser was going to stay open anyway.
+		if (this.launched?.attached) return;
 		if (Date.now() - this.lastUse < minutes * 60_000) return;
 		this.deps.log("空闲超时，关闭浏览器");
 		await this.stop().catch(() => {});

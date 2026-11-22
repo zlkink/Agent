@@ -1580,6 +1580,10 @@ var BrowserCore = class {
   downloads = [];
   changeTimer;
   idleTimer;
+  /** Keeps the attached Chrome's WebSocket busy and notices it dying. */
+  heartbeat;
+  reconnectTimer;
+  reconnects = 0;
   installing;
   stopping = false;
   agentQueue = Promise.resolve();
@@ -1758,26 +1762,23 @@ var BrowserCore = class {
   }
   /**
    * Where to connect, most version-proof first: a hand-entered WebSocket path, then DevToolsActivePort
-   * (chrome://inspect's authorized server — it serves no /json at all), then classic --remote-debugging-port.
-   * `approval` marks the first two: Chrome holds that handshake until the user answers its prompt.
+   * (chrome://inspect's authorized server — it serves no /json at all), then classic --remote-debugging-port,
+   * then that authorized server through the port alone: it upgrades any path under /devtools/browser and
+   * does not check the UUID, so a Chrome whose profile macOS keeps unreadable still opens without Full Disk
+   * Access. `approval` marks the ones Chrome may hold until the user answers its prompt.
    */
   async systemEndpoint(port) {
     const manual = parseWsTarget(this.deps.settings().wsPath);
     if (manual) return { wsUrl: `ws://127.0.0.1:${manual.port ?? port}${manual.path}`, approval: true, via: "\u624B\u586B\u7684 WebSocket \u8DEF\u5F84", product: "Chrome" };
     const active = await readDevToolsActivePort();
     if (active) return { wsUrl: active.wsUrl, approval: true, via: "DevToolsActivePort", product: "Chrome" };
-    const res = await fetch(`http://127.0.0.1:${port}/json/version`, { signal: AbortSignal.timeout(3e3) }).catch((err) => {
-      throw new Error(`\u7AEF\u53E3 ${port} \u4E0A\u6CA1\u6709\u53EF\u7528\u7684 Chrome \u8C03\u8BD5\u670D\u52A1\uFF08${err.message}\uFF09`);
-    });
-    if (res.status === 404) {
-      throw new Error(
-        `\u7AEF\u53E3 ${port} \u4E0A\u7684 Chrome \u4E0D\u63D0\u4F9B /json\uFF08144+ \u7684\u6388\u6743\u5F0F\u670D\u52A1\u53EA\u8D70 WebSocket\uFF09\u3002\u6253\u5F00 chrome://inspect/#remote-debugging \u52FE\u9009\u5141\u8BB8\u8FDC\u7A0B\u8C03\u8BD5\u8BA9\u7AEF\u53E3\u81EA\u52A8\u8BFB\u53D6\uFF0C\u6216\u628A DevToolsActivePort \u7B2C\u4E8C\u884C\u586B\u8FDB\u300CWebSocket \u8DEF\u5F84\u300D\u3002`
-      );
-    }
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const meta = await res.json();
-    if (!meta.webSocketDebuggerUrl) throw new Error("\u8C03\u8BD5\u7AEF\u53E3\u6CA1\u6709\u8FD4\u56DE WebSocket \u5730\u5740");
-    return { wsUrl: meta.webSocketDebuggerUrl, approval: false, via: "/json/version", product: meta.Browser ?? "Chrome" };
+    const res = await fetch(`http://127.0.0.1:${port}/json/version`, { signal: AbortSignal.timeout(3e3) }).catch(() => void 0);
+    const meta = res?.ok ? await res.json().catch(() => ({})) : {};
+    if (meta.webSocketDebuggerUrl) return { wsUrl: meta.webSocketDebuggerUrl, approval: false, via: "/json/version", product: meta.Browser ?? "Chrome" };
+    if (await portOpen(port)) return { wsUrl: `ws://127.0.0.1:${port}/devtools/browser`, approval: true, via: `\u7AEF\u53E3 ${port} \u7684\u6388\u6743\u5F0F\u8C03\u8BD5\u670D\u52A1`, product: "Chrome" };
+    throw new Error(
+      res ? `\u7AEF\u53E3 ${port} \u4E0A\u7684\u8C03\u8BD5\u670D\u52A1\u8FD4\u56DE HTTP ${res.status}\uFF0C\u4E5F\u4E0D\u63A5\u53D7 WebSocket` : `\u7AEF\u53E3 ${port} \u4E0A\u6CA1\u6709\u53EF\u7528\u7684 Chrome \u8C03\u8BD5\u670D\u52A1\uFF08\u8FDE\u63A5\u88AB\u62D2\u7EDD\uFF09\u3002\u5148\u5728 chrome://inspect/#remote-debugging \u52FE\u9009\u300C\u5141\u8BB8\u8FDC\u7A0B\u8C03\u8BD5\u300D\uFF0C\u5E76\u5728\u8BBE\u7F6E\u91CC\u586B Chrome \u5B9E\u9645\u76D1\u542C\u7684\u7AEF\u53E3\u3002`
+    );
   }
   beginStart() {
     this.status = "starting";
@@ -1817,9 +1818,30 @@ var BrowserCore = class {
     });
     this.status = "running";
     this.needsRemoteDebugging = false;
+    this.reconnects = 0;
+    this.startHeartbeat(conn);
     this.changed();
     await this.waitFirstTab();
     this.updateScreencast();
+  }
+  /**
+   * Chrome asks "allow remote debugging?" once per WebSocket, so the connection is kept, not rebuilt: a ping
+   * every 30 s keeps intermediaries from dropping it and makes a dead socket obvious while the user is still
+   * at the machine.
+   */
+  startHeartbeat(conn) {
+    clearInterval(this.heartbeat);
+    this.heartbeat = setInterval(() => {
+      if (conn.closed) return;
+      void conn.send("Browser.getVersion", {}, void 0, 15e3).catch(() => conn.close());
+    }, 3e4);
+    this.heartbeat.unref();
+  }
+  stopHeartbeat() {
+    clearInterval(this.heartbeat);
+    this.heartbeat = void 0;
+    clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = void 0;
   }
   async failAttach(err, port) {
     this.startingHint = void 0;
@@ -1838,22 +1860,52 @@ var BrowserCore = class {
     if (this.launched?.conn !== conn) return;
     this.launched = void 0;
     this.clearTabs();
+    this.stopHeartbeat();
     this.error = void 0;
     this.startingHint = void 0;
     this.status = "stopped";
     this.needsRemoteDebugging = this.mode === "system";
-    if (!this.stopping) this.deps.log(`\u7CFB\u7EDF Chrome \u7684\u8C03\u8BD5\u8FDE\u63A5\u5DF2\u65AD\u5F00\uFF08${reason}\uFF09\uFF1B\u4E0B\u6B21\u4F7F\u7528\u4F1A\u91CD\u65B0\u8BFB DevToolsActivePort \u5E76\u91CD\u8FDE`);
     this.changed();
+    if (this.stopping) return;
+    this.deps.log(`\u7CFB\u7EDF Chrome \u7684\u8C03\u8BD5\u8FDE\u63A5\u5DF2\u65AD\u5F00\uFF08${reason}\uFF09\uFF1B\u9A6C\u4E0A\u91CD\u8FDE`);
+    this.reconnectSoon();
+  }
+  /**
+   * A dropped socket needs Chrome's approval again, and getting it now beats getting it on the next tool call
+   * hours later. One retry: a denied prompt must not turn into a loop of prompts.
+   */
+  reconnectSoon() {
+    if (this.reconnects >= 2) {
+      this.deps.log("\u91CD\u8FDE\u6CA1\u6210\u529F\uFF0C\u4E0B\u6B21\u5DE5\u5177\u8C03\u7528\u518D\u8BD5");
+      return;
+    }
+    this.reconnects++;
+    clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = setTimeout(() => {
+      if (this.stopping || this.running) return;
+      void this.ensure().catch((err) => this.deps.log(`\u91CD\u8FDE\u7CFB\u7EDF Chrome \u5931\u8D25\uFF1A${err.message}`));
+    }, 1e3);
+    this.reconnectTimer.unref();
   }
   /** The three facts worth printing when a "system" attach fails: the file, the port, what /json says. */
   async systemDiagnosis(port) {
     let file = "DevToolsActivePort \u4E0D\u5B58\u5728\uFF08chrome://inspect \u52FE\u9009\u300C\u5141\u8BB8\u8FDC\u7A0B\u8C03\u8BD5\u300D\u540E\u624D\u751F\u6210\uFF09";
+    let denied = false;
     for (const f of devToolsActivePortFiles()) {
-      const text2 = await readFile3(f, "utf8").catch(() => void 0);
+      let text2;
+      try {
+        text2 = await readFile3(f, "utf8");
+      } catch (err) {
+        const code = err.code;
+        if (code === "EPERM" || code === "EACCES") denied = true;
+        continue;
+      }
       if (!text2) continue;
       file = `DevToolsActivePort = ${text2.trim().split(String.fromCharCode(10)).map((l) => l.trim()).filter(Boolean).join(" ")}`;
+      denied = false;
       break;
     }
+    if (denied) file = "DevToolsActivePort \u6587\u4EF6\u5728\uFF0C\u4F46 macOS \u4E0D\u8BA9\u672C\u8FDB\u7A0B\u8BFB\uFF08profile \u76EE\u5F55\u53D7\u4FDD\u62A4\uFF1B\u4E0D\u7528\u7ED9\u5B8C\u5168\u78C1\u76D8\u8BBF\u95EE\u6743\u9650\uFF0C\u7AEF\u53E3\u76F4\u8FDE\u5373\u53EF\uFF09";
     const active = await readDevToolsActivePort();
     const p = active?.port ?? port;
     const listening = await portOpen(p).catch(() => false);
@@ -1916,6 +1968,8 @@ var BrowserCore = class {
     this.activeId = null;
   }
   async stop() {
+    this.stopHeartbeat();
+    this.reconnects = 0;
     const l = this.launched;
     if (!l) {
       this.status = "stopped";
@@ -1958,6 +2012,7 @@ var BrowserCore = class {
   async reapIdle() {
     const minutes = this.deps.settings().idleMinutes;
     if (!minutes || !this.running || this.agent.busy || this.deps.watchers() > 0) return;
+    if (this.launched?.attached) return;
     if (Date.now() - this.lastUse < minutes * 6e4) return;
     this.deps.log("\u7A7A\u95F2\u8D85\u65F6\uFF0C\u5173\u95ED\u6D4F\u89C8\u5668");
     await this.stop().catch(() => {

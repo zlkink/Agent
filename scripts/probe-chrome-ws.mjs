@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 // Diagnoses the "system" browser mode (attaching to a Chrome that is already running).
 //
-//   node scripts/probe-chrome-ws.mjs [timeoutSeconds] [--ws ws://127.0.0.1:PORT/devtools/browser/<uuid>]
+//   node scripts/probe-chrome-ws.mjs [timeoutSeconds] [--port 53197] [--ws ws://127.0.0.1:PORT/devtools/browser/<uuid>]
 //
 // Prints what DevToolsActivePort says, whether the port listens, what /json answers, and then
 // actually performs the WebSocket handshake the plugin performs. Chrome 144+ serves no /json at
-// all and holds the handshake until the user approves "Allow remote debugging" in the browser,
-// so a hang here is an authorization problem, not a wrong port.
+// all and may hold the handshake until the user approves "Allow remote debugging" in the browser,
+// so a hang here is an authorization problem, not a wrong port. Its server does not check the UUID
+// in the path, so --port alone is enough when the file is unreadable (macOS protects the profile).
 //
 // Exit codes: 0 connected · 2 handshake timed out (approval pending) · 3 no endpoint · 4 other error.
 import { readFileSync, statSync } from "node:fs";
@@ -15,9 +16,13 @@ import { join } from "node:path";
 import { connect } from "node:net";
 
 const args = process.argv.slice(2);
-const wsFlag = args.indexOf("--ws");
-const explicitWs = wsFlag >= 0 ? args[wsFlag + 1] : undefined;
-const timeoutArg = args.find((a, i) => !a.startsWith("--") && (wsFlag < 0 || i !== wsFlag + 1));
+const flag = (name) => {
+	const i = args.indexOf(name);
+	return i >= 0 ? args[i + 1] : undefined;
+};
+const explicitWs = flag("--ws");
+const explicitPort = Number.parseInt(flag("--port") ?? "", 10);
+const timeoutArg = args.find((a) => !a.startsWith("--") && a !== explicitWs && a !== flag("--port"));
 const timeoutMs = Math.max(1, Number(timeoutArg ?? 20)) * 1000;
 
 function profileFiles() {
@@ -59,6 +64,7 @@ let wsUrl = explicitWs;
 let port;
 if (!wsUrl) {
 	let found;
+	let denied = false;
 	for (const file of profileFiles()) {
 		try {
 			const text = readFileSync(file, "utf8");
@@ -67,19 +73,30 @@ if (!wsUrl) {
 			if (!Number.isInteger(n) || n <= 0 || !rawPath?.startsWith("/devtools/browser/")) continue;
 			found = { file, port: n, path: rawPath, mtime: statSync(file).mtime.toISOString() };
 			break;
-		} catch {}
+		} catch (err) {
+			if (err?.code === "EPERM" || err?.code === "EACCES") denied = true;
+		}
 	}
 	if (!found) {
-		console.log("DevToolsActivePort: not found in any known profile");
-		console.log("→ open chrome://inspect/#remote-debugging and tick \"Allow remote debugging\" (Chrome only writes the file then).");
-		process.exit(3);
+		console.log(`DevToolsActivePort: ${denied ? "exists but cannot be read (macOS protects the Chrome profile; no Full Disk Access here)" : "not found in any known profile"}`);
+		const fallback = Number.isInteger(explicitPort) && explicitPort > 0 ? explicitPort : 9222;
+		if (!(await portOpen(fallback))) {
+			console.log("→ open chrome://inspect/#remote-debugging and tick \"Allow remote debugging\" (Chrome only writes the file then), then pass its port with --port.");
+			process.exit(3);
+		}
+		// The 144+ server upgrades any path under /devtools/browser, so the port is all it needs.
+		console.log(`→ port ${fallback} listens; trying ws://127.0.0.1:${fallback}/devtools/browser (path not checked; no need to read the file)`);
+		port = fallback;
+		wsUrl = `ws://127.0.0.1:${fallback}/devtools/browser`;
 	}
-	console.log(`DevToolsActivePort: ${found.file}`);
-	console.log(`  written: ${found.mtime}`);
-	console.log(`  port:    ${found.port}`);
-	console.log(`  path:    ${found.path}`);
-	port = found.port;
-	wsUrl = `ws://127.0.0.1:${found.port}${found.path}`;
+	if (found) {
+		console.log(`DevToolsActivePort: ${found.file}`);
+		console.log(`  written: ${found.mtime}`);
+		console.log(`  port:    ${found.port}`);
+		console.log(`  path:    ${found.path}`);
+		port = found.port;
+		wsUrl = `ws://127.0.0.1:${found.port}${found.path}`;
+	}
 } else {
 	console.log(`ws (explicit): ${wsUrl}`);
 	try {

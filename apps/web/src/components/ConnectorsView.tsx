@@ -52,7 +52,7 @@ const M = defineMessages({
 		systemBrowserHint: "勾选后浏览器工具连接你当前运行的 Chrome。Chrome 144+ 可先在 chrome://inspect/#remote-debugging 勾选允许远程调试，端口会自动读取；传统方式是用 --remote-debugging-port 启动。",
 		debugPort: "调试端口",
 		wsPath: "WebSocket 路径",
-		wsPathHint: "Chrome 144+ 的远程调试不再提供 /json（一律 404），只走 WebSocket。把该 Chrome 的 DevToolsActivePort 第二行（/devtools/browser/…）粘到这里；主机固定 127.0.0.1，留空则自动读取。",
+		wsPathHint: "Chrome 144+ 的远程调试不再提供 /json（一律 404），只走 WebSocket；那条路径不校验 UUID，所以填好上面的调试端口就能连，无需完全磁盘访问权限。这里只在端口不是上面那个、或要连别的 profile 时才填（/devtools/browser/… 或整条 ws:// 地址）。",
 	},
 	en: {
 		title: "Connectors",
@@ -97,7 +97,7 @@ const M = defineMessages({
 		systemBrowserHint: "Use your running Chrome for browser tools. On Chrome 144+ enable chrome://inspect/#remote-debugging and the port is read automatically; the classic way is starting Chrome with --remote-debugging-port.",
 		debugPort: "Debug port",
 		wsPath: "WebSocket path",
-		wsPathHint: "Chrome 144+ no longer serves /json (every endpoint is 404) — remote debugging is WebSocket only. Paste that Chrome's DevToolsActivePort second line (/devtools/browser/…); the host is always 127.0.0.1. Empty: read automatically.",
+		wsPathHint: "Chrome 144+ no longer serves /json (every endpoint is 404) — remote debugging is WebSocket only, and the path is not checked against the UUID, so the debug port above is enough (no Full Disk Access needed). Fill this in only for a different port or another profile: /devtools/browser/… or a full ws:// URL.",
 	},
 });
 

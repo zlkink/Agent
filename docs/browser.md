@@ -172,7 +172,7 @@ src/
 | `executablePath` | `""` | 留空自动查找 |
 | `mode` | `headless` | `window` 为独立窗口（仍同步到面板） |
 | `debugPort` | 9222 | `system` 模式下的调试端口；有 `DevToolsActivePort` 时以文件里的端口为准 |
-| `wsPath` | `""` | `system` 模式下直接给出 `/devtools/browser/<uuid>`（也可粘整条 `ws://127.0.0.1:PORT/...`）。Chrome 144+ 的 `/json` 全部 404，只能走这条；留空则自动读 `DevToolsActivePort` |
+| `wsPath` | `""` | `system` 模式下手写 `/devtools/browser/<uuid>`（也可粘整条 `ws://127.0.0.1:PORT/...`）。一般用不上：144+ 的服务不校验这段 UUID，填好 `debugPort` 就能连；只在端口不固定或要连别的 profile 时用 |
 | `searchUrl` | Bing | `%s` 为关键词 |
 | `proxy` | `""` | `http://`、`https://`、`socks5://` |
 | `idleMinutes` | 15 | 0 为不自动关闭 |
@@ -184,12 +184,15 @@ src/
 
 ### 7.1 接管运行中的 Chrome（`mode = system`）
 
-Chrome 144 起「允许远程调试」是**授权式**服务：`/json`、`/json/list`、`/json/version` 一律 404，唯一入口是 `DevToolsActivePort` 第二行的 `/devtools/browser/<uuid>` 上的 WebSocket；首次连接时 Chrome 会弹确认，握手就停在那里——表现为「没反应」而不是报错。
+Chrome 144 起「允许远程调试」是**授权式**服务：`/json`、`/json/list`、`/json/version` 一律 404，只走 `127.0.0.1:<端口>` 上的 WebSocket；首次连接时 Chrome 可能弹确认，握手就停在那里——表现为「没反应」而不是报错。
 
-- 连接顺序：设置里的 `wsPath` → 自动读 `DevToolsActivePort` → 经典 `--remote-debugging-port` 的 `/json/version`
+服务器**不校验** `/devtools/browser/` 后面那段 UUID：任何路径都能升级成 WebSocket，所以只要有端口就能连。`DevToolsActivePort` 只是用来发现端口，而 macOS 把 Chrome 的 profile 目录保护起来了（没有「完全磁盘访问权限」的进程读到的是 `EPERM`）——这条不该成为拦路虎，端口已知时绕开它即可。
+
+- 连接顺序：设置里的 `wsPath` → 自动读 `DevToolsActivePort` → 经典 `--remote-debugging-port` 的 `/json/version` → 端口在监听就直接连 `ws://127.0.0.1:<debugPort>/devtools/browser`
 - 等待期间状态每 5 秒刷新「已等待 Ns」；180 s 超时后错误里带三行诊断：文件内容、端口是否监听、`/json/version` 的状态码
-- 连接断开会回到 `stopped` 而不是 `error`：下一次工具调用重新读文件重连，所以 Chrome 重启调试服务换了 uuid 也能自愈
-- 独立排查：`node scripts/probe-chrome-ws.mjs [超时秒数]`，退出码 `0` 连接成功 / `2` 还在等授权 / `3` 没有端点 / `4` 端口被别的程序占用
+- 授权一次就保持长连接：每 30 s 发一次 `Browser.getVersion` 心跳；空闲超时**不会**断开系统 Chrome（`system` 模式跳过空闲关闭），只有用户自己关应用或换模式才断
+- socket 意外断开（Chrome 重启调试服务、端口换了）会立刻自动重连一次，失败后回到 `stopped`，等下次工具调用再试——Chrome 对每条 WebSocket 都要一次「允许」，趁人还在机器前把弹窗处理掉
+- 独立排查：`node scripts/probe-chrome-ws.mjs [超时秒数] [--port 端口]`，退出码 `0` 连接成功 / `2` 还在等授权 / `3` 没有端点 / `4` 端口被别的程序占用。读不到 `DevToolsActivePort` 时会用 `--port`（缺省 9222）直接连
 
 ## 8. 手机
 

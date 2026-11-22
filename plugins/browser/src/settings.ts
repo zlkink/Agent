@@ -8,8 +8,9 @@ export interface BrowserSettings {
 	debugPort: number;
 	/**
 	 * `/devtools/browser/<uuid>` for the "system" mode, optionally as a full `ws://127.0.0.1:PORT/...` URL.
-	 * Chrome 144+ serves no /json at all, so that second line of DevToolsActivePort is the only way in;
-	 * pasting it covers what the file cannot: custom user-data dirs, a remote Chrome, a non-standard profile name.
+	 * Chrome 144+ serves no /json, but its debugging server takes a WebSocket on /devtools/browser with any
+	 * path (the UUID is not checked), so the debug port alone is enough; this covers a Chrome whose port is
+	 * not the configured one, or a profile macOS keeps unreadable (no Full Disk Access needed).
 	 */
 	wsPath: string;
 	/** `%s` is replaced by the query. */
