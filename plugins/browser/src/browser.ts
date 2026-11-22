@@ -10,7 +10,7 @@ import { GUEST_RUNTIME, guestInfo } from "./guest.ts";
 import { closeBrowser, type FoundBrowser, type Launched, launchBrowser, locateBrowser } from "./chrome.ts";
 import { cftExecutable, cftPlatform, type InstallProgress, installChrome } from "./install.ts";
 import { MOD } from "./keys.ts";
-import type { BrowserSettings } from "./settings.ts";
+import { parseWsTarget, type BrowserSettings } from "./settings.ts";
 import { Tab, type TabHost } from "./tab.ts";
 import type { AgentState, BrowserMode, BrowserState, DownloadInfo, InputEvent, ViewMessage, Viewport } from "./types.ts";
 
@@ -322,25 +322,46 @@ export class BrowserCore implements TabHost {
 		this.needsRemoteDebugging = false;
 		this.changed();
 		try {
-			// Chrome 144+ with chrome://inspect/#remote-debugging enabled writes the
-			// real port and browser WebSocket path here. Do not probe /json/version:
-			// that endpoint is absent in this mode, and the WebSocket handshake itself
-			// is what asks Chrome to show the "Allow remote debugging?" dialog.
-			const active = await readDevToolsActivePort();
+			// Three ways in, most-version-proof first:
+			//   1. the "WebSocket path" setting (DevToolsActivePort's second line, pasted by hand);
+			//   2. auto-read DevToolsActivePort — chrome://inspect/#remote-debugging writes the real
+			//      port and browser WebSocket path there and serves no /json at all;
+			//   3. classic --remote-debugging-port, whose /json/version does list the ws URL.
+			// Never probe /json before 2: on Chrome 144+ every /json endpoint is 404, and the
+			// WebSocket handshake itself is what asks Chrome to show "Allow remote debugging?".
+			const manual = parseWsTarget(this.deps.settings().wsPath);
+			const active = manual ? undefined : await readDevToolsActivePort();
 			let wsUrl = active?.wsUrl;
 			let browser = "Chrome";
-			if (active) {
+			let waitingForUser = !!active;
+			if (manual) {
+				wsUrl = `ws://127.0.0.1:${manual.port ?? port}${manual.path}`;
+				waitingForUser = true;
+				this.startingHint = "正在连接你填写的 WebSocket 路径；Chrome 若弹出授权窗口，请点“允许远程调试”";
+				this.changed();
+			} else if (active) {
 				this.startingHint = "请在弹出的 Chrome 窗口中点击“允许远程调试”";
 				this.changed();
 			} else {
-				const res = await fetch(`http://127.0.0.1:${port}/json/version`, { signal: AbortSignal.timeout(3000) });
+				let res: Response;
+				try {
+					res = await fetch(`http://127.0.0.1:${port}/json/version`, { signal: AbortSignal.timeout(3000) });
+				} catch (err) {
+					throw new Error(`端口 ${port} 上没有可用的 Chrome 调试服务（${err instanceof Error ? err.message : String(err)}）`);
+				}
+				if (res.status === 404) {
+					throw new Error(
+						`端口 ${port} 上的 Chrome 关闭了 /json 接口（Chrome 144+ 的远程调试只走 WebSocket，/json 一律 404）。` +
+							"二选一：打开 chrome://inspect/#remote-debugging 勾选允许远程调试，让端口自动读取；或把 DevToolsActivePort 第二行（/devtools/browser/<uuid>）填进「WebSocket 路径」。",
+					);
+				}
 				if (!res.ok) throw new Error(`HTTP ${res.status}`);
 				const meta = (await res.json()) as { webSocketDebuggerUrl?: string; Browser?: string };
 				if (!meta.webSocketDebuggerUrl) throw new Error("调试端口没有返回 WebSocket 地址");
 				wsUrl = meta.webSocketDebuggerUrl;
 				browser = meta.Browser ?? browser;
 			}
-			const conn = await connectWebSocket(wsUrl!, active ? 180_000 : 10_000);
+			const conn = await connectWebSocket(wsUrl!, waitingForUser ? 180_000 : 10_000);
 			this.startingHint = undefined;
 			const version = (await conn.send("Browser.getVersion", {})) as { product?: string; userAgent?: string };
 			const userAgent = version.userAgent ?? "";
@@ -367,7 +388,7 @@ export class BrowserCore implements TabHost {
 			this.error = err instanceof Error ? err.message : String(err);
 			this.changed();
 			throw new UserFacingError(
-				`连接系统 Chrome 失败：${this.error}。请在 Chrome 打开 chrome://inspect/#remote-debugging，勾选“Allow remote debugging”，再重试；或带 --remote-debugging-port=${port} 启动 Chrome。`,
+				`连接系统 Chrome 失败：${this.error}。请在 Chrome 打开 chrome://inspect/#remote-debugging，勾选“Allow remote debugging”，再重试；或在设置里填 DevToolsActivePort 的 /devtools/browser/<uuid>；或带 --remote-debugging-port=${port} 启动 Chrome。`,
 			);
 		}
 	}

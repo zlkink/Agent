@@ -9,7 +9,7 @@ import { checkUrl, toUrl } from "../src/browser.ts";
 import { launchArgs } from "../src/chrome.ts";
 import { extractZip } from "../src/install.ts";
 import { comboEvents, MOD, parseCombo } from "../src/keys.ts";
-import { sanitizeSettings } from "../src/settings.ts";
+import { parseWsTarget, sanitizeSettings } from "../src/settings.ts";
 import { type AXNode, backendIdOf, toCUTree } from "../src/snapshot.ts";
 
 describe("address bar", () => {
@@ -73,6 +73,20 @@ describe("settings", () => {
 		});
 		expect(sanitizeSettings({ proxy: "rm -rf /", searchUrl: "javascript:x", lang: "zh CN; x", mode: "fullscreen", extra: 1 })).toEqual({});
 		expect(sanitizeSettings({ proxy: "" })).toEqual({ proxy: "" });
+	});
+
+	it("accepts a DevTools WebSocket path, bare or as a ws URL", () => {
+		const uuid = "280c3559-d3e4-4fe0-9353-345afd82a367";
+		expect(parseWsTarget(`/devtools/browser/${uuid}`)).toEqual({ path: `/devtools/browser/${uuid}` });
+		expect(parseWsTarget(`ws://127.0.0.1:53197/devtools/browser/${uuid}`)).toEqual({ port: 53197, path: `/devtools/browser/${uuid}` });
+		expect(parseWsTarget(`ws://localhost:9222/devtools/browser/${uuid}`)).toEqual({ port: 9222, path: `/devtools/browser/${uuid}` });
+		expect(parseWsTarget("")).toBeUndefined();
+		expect(parseWsTarget("9222")).toBeUndefined();
+		expect(parseWsTarget("/json/list")).toBeUndefined();
+		expect(parseWsTarget(`ws://10.0.0.2:9222/devtools/browser/${uuid}`)).toBeUndefined();
+		expect(sanitizeSettings({ wsPath: `/devtools/browser/${uuid}` })).toEqual({ wsPath: `/devtools/browser/${uuid}` });
+		expect(sanitizeSettings({ wsPath: "garbage" })).toEqual({});
+		expect(sanitizeSettings({ wsPath: "" })).toEqual({ wsPath: "" });
 	});
 });
 

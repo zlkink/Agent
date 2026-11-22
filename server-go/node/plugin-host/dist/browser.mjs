@@ -988,6 +988,70 @@ function modBit(key) {
   return key === "Alt" ? MOD.alt : key === "Control" ? MOD.ctrl : key === "Meta" ? MOD.meta : key === "Shift" ? MOD.shift : 0;
 }
 
+// ../../../plugins/browser/src/settings.ts
+function defaultLang() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().locale || "en-US";
+  } catch {
+    return "en-US";
+  }
+}
+var DEFAULT_SETTINGS = {
+  executablePath: "",
+  mode: "headless",
+  debugPort: 9222,
+  wsPath: "",
+  searchUrl: "https://www.bing.com/search?q=%s",
+  proxy: "",
+  idleMinutes: 15,
+  quality: 70,
+  maxFps: 30,
+  restoreTabs: true,
+  downloadDir: "",
+  lang: defaultLang(),
+  allowEval: true,
+  mobile: true
+};
+var str = (v, max = 2e3) => typeof v === "string" ? v.trim().slice(0, max) : void 0;
+var num = (v, lo, hi) => typeof v === "number" && Number.isFinite(v) ? Math.round(Math.min(hi, Math.max(lo, v))) : void 0;
+var bool = (v) => typeof v === "boolean" ? v : void 0;
+function parseWsTarget(raw) {
+  const value = raw.trim();
+  if (!value) return void 0;
+  const m = /^(?:ws:\/\/(?:127\.0\.0\.1|localhost)(?::(\d{1,5}))?)?(\/devtools\/browser\/[A-Za-z0-9._-]+)$/.exec(value);
+  if (!m) return void 0;
+  const path = m[2];
+  if (m[1] === void 0) return { path };
+  const port = Number(m[1]);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return void 0;
+  return { port, path };
+}
+function sanitizeSettings(raw) {
+  const r = raw ?? {};
+  const proxy = str(r.proxy);
+  const searchUrl = str(r.searchUrl);
+  const lang = str(r.lang, 35);
+  const wsPath = str(r.wsPath, 300);
+  const out = {
+    executablePath: str(r.executablePath),
+    mode: r.mode === "headless" || r.mode === "window" || r.mode === "system" ? r.mode : void 0,
+    debugPort: num(r.debugPort, 1, 65535),
+    wsPath: wsPath === void 0 ? void 0 : wsPath === "" || parseWsTarget(wsPath) ? wsPath : void 0,
+    searchUrl: searchUrl === void 0 ? void 0 : /^https?:\/\//i.test(searchUrl) ? searchUrl : void 0,
+    proxy: proxy === void 0 ? void 0 : proxy === "" || /^(https?|socks[45]?):\/\/[^\s]+$/i.test(proxy) ? proxy : void 0,
+    idleMinutes: num(r.idleMinutes, 0, 24 * 60),
+    quality: num(r.quality, 20, 95),
+    maxFps: num(r.maxFps, 5, 60),
+    restoreTabs: bool(r.restoreTabs),
+    downloadDir: str(r.downloadDir),
+    lang: lang === void 0 ? void 0 : /^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$/.test(lang) ? lang : void 0,
+    allowEval: bool(r.allowEval),
+    mobile: bool(r.mobile)
+  };
+  for (const k of Object.keys(out)) if (out[k] === void 0) delete out[k];
+  return out;
+}
+
 // ../../../plugins/browser/src/page-script.ts
 var WORLD = "prometheus";
 var BINDING = "__prometheusBridge";
@@ -1689,21 +1753,38 @@ var BrowserCore = class {
     this.needsRemoteDebugging = false;
     this.changed();
     try {
-      const active = await readDevToolsActivePort();
+      const manual = parseWsTarget(this.deps.settings().wsPath);
+      const active = manual ? void 0 : await readDevToolsActivePort();
       let wsUrl = active?.wsUrl;
       let browser = "Chrome";
-      if (active) {
+      let waitingForUser = !!active;
+      if (manual) {
+        wsUrl = `ws://127.0.0.1:${manual.port ?? port}${manual.path}`;
+        waitingForUser = true;
+        this.startingHint = "\u6B63\u5728\u8FDE\u63A5\u4F60\u586B\u5199\u7684 WebSocket \u8DEF\u5F84\uFF1BChrome \u82E5\u5F39\u51FA\u6388\u6743\u7A97\u53E3\uFF0C\u8BF7\u70B9\u201C\u5141\u8BB8\u8FDC\u7A0B\u8C03\u8BD5\u201D";
+        this.changed();
+      } else if (active) {
         this.startingHint = "\u8BF7\u5728\u5F39\u51FA\u7684 Chrome \u7A97\u53E3\u4E2D\u70B9\u51FB\u201C\u5141\u8BB8\u8FDC\u7A0B\u8C03\u8BD5\u201D";
         this.changed();
       } else {
-        const res = await fetch(`http://127.0.0.1:${port}/json/version`, { signal: AbortSignal.timeout(3e3) });
+        let res;
+        try {
+          res = await fetch(`http://127.0.0.1:${port}/json/version`, { signal: AbortSignal.timeout(3e3) });
+        } catch (err) {
+          throw new Error(`\u7AEF\u53E3 ${port} \u4E0A\u6CA1\u6709\u53EF\u7528\u7684 Chrome \u8C03\u8BD5\u670D\u52A1\uFF08${err instanceof Error ? err.message : String(err)}\uFF09`);
+        }
+        if (res.status === 404) {
+          throw new Error(
+            `\u7AEF\u53E3 ${port} \u4E0A\u7684 Chrome \u5173\u95ED\u4E86 /json \u63A5\u53E3\uFF08Chrome 144+ \u7684\u8FDC\u7A0B\u8C03\u8BD5\u53EA\u8D70 WebSocket\uFF0C/json \u4E00\u5F8B 404\uFF09\u3002\u4E8C\u9009\u4E00\uFF1A\u6253\u5F00 chrome://inspect/#remote-debugging \u52FE\u9009\u5141\u8BB8\u8FDC\u7A0B\u8C03\u8BD5\uFF0C\u8BA9\u7AEF\u53E3\u81EA\u52A8\u8BFB\u53D6\uFF1B\u6216\u628A DevToolsActivePort \u7B2C\u4E8C\u884C\uFF08/devtools/browser/<uuid>\uFF09\u586B\u8FDB\u300CWebSocket \u8DEF\u5F84\u300D\u3002`
+          );
+        }
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const meta = await res.json();
         if (!meta.webSocketDebuggerUrl) throw new Error("\u8C03\u8BD5\u7AEF\u53E3\u6CA1\u6709\u8FD4\u56DE WebSocket \u5730\u5740");
         wsUrl = meta.webSocketDebuggerUrl;
         browser = meta.Browser ?? browser;
       }
-      const conn = await connectWebSocket(wsUrl, active ? 18e4 : 1e4);
+      const conn = await connectWebSocket(wsUrl, waitingForUser ? 18e4 : 1e4);
       this.startingHint = void 0;
       const version = await conn.send("Browser.getVersion", {});
       const userAgent = version.userAgent ?? "";
@@ -1731,7 +1812,7 @@ var BrowserCore = class {
       this.error = err instanceof Error ? err.message : String(err);
       this.changed();
       throw new UserFacingError(
-        `\u8FDE\u63A5\u7CFB\u7EDF Chrome \u5931\u8D25\uFF1A${this.error}\u3002\u8BF7\u5728 Chrome \u6253\u5F00 chrome://inspect/#remote-debugging\uFF0C\u52FE\u9009\u201CAllow remote debugging\u201D\uFF0C\u518D\u91CD\u8BD5\uFF1B\u6216\u5E26 --remote-debugging-port=${port} \u542F\u52A8 Chrome\u3002`
+        `\u8FDE\u63A5\u7CFB\u7EDF Chrome \u5931\u8D25\uFF1A${this.error}\u3002\u8BF7\u5728 Chrome \u6253\u5F00 chrome://inspect/#remote-debugging\uFF0C\u52FE\u9009\u201CAllow remote debugging\u201D\uFF0C\u518D\u91CD\u8BD5\uFF1B\u6216\u5728\u8BBE\u7F6E\u91CC\u586B DevToolsActivePort \u7684 /devtools/browser/<uuid>\uFF1B\u6216\u5E26 --remote-debugging-port=${port} \u542F\u52A8 Chrome\u3002`
       );
     }
   }
@@ -2083,8 +2164,8 @@ var BrowserCore = class {
           calls.push(
             tab.send("Input.dispatchMouseEvent", {
               type: e.type,
-              x: num(e.x),
-              y: num(e.y),
+              x: num2(e.x),
+              y: num2(e.y),
               button: e.button ?? "none",
               buttons: e.buttons ?? 0,
               clickCount: e.clickCount ?? 0,
@@ -2093,10 +2174,10 @@ var BrowserCore = class {
           );
           break;
         case "wheel":
-          calls.push(tab.send("Input.dispatchMouseEvent", { type: "mouseWheel", x: num(e.x), y: num(e.y), deltaX: num(e.dx), deltaY: num(e.dy), modifiers: e.modifiers ?? 0 }));
+          calls.push(tab.send("Input.dispatchMouseEvent", { type: "mouseWheel", x: num2(e.x), y: num2(e.y), deltaX: num2(e.dx), deltaY: num2(e.dy), modifiers: e.modifiers ?? 0 }));
           break;
         case "touch":
-          calls.push(tab.send("Input.dispatchTouchEvent", { type: e.type, touchPoints: e.points.slice(0, 10).map((p) => ({ x: num(p.x), y: num(p.y), id: p.id })), modifiers: e.modifiers ?? 0 }));
+          calls.push(tab.send("Input.dispatchTouchEvent", { type: e.type, touchPoints: e.points.slice(0, 10).map((p) => ({ x: num2(p.x), y: num2(p.y), id: p.id })), modifiers: e.modifiers ?? 0 }));
           break;
         case "key": {
           let modifiers = e.modifiers ?? 0;
@@ -2244,7 +2325,7 @@ var BrowserCore = class {
     this.changed();
   }
 };
-function num(v) {
+function num2(v) {
   return typeof v === "number" && Number.isFinite(v) ? v : 0;
 }
 function editingFor(code, modifiers) {
@@ -2270,7 +2351,7 @@ var RENAME = {
 };
 var CHECKABLE = /* @__PURE__ */ new Set(["checkbox", "radio", "switch", "menuitemcheckbox", "menuitemradio", "option", "treeitem"]);
 var TEXT_ENTRY = /* @__PURE__ */ new Set(["textbox", "searchbox", "spinbutton"]);
-var str = (v) => {
+var str2 = (v) => {
   if (!v || v.value === void 0 || v.value === null) return void 0;
   const s = typeof v.value === "string" ? v.value : typeof v.value === "number" || typeof v.value === "boolean" ? String(v.value) : void 0;
   return s?.trim() ? s : void 0;
@@ -2324,15 +2405,15 @@ function toCUTree(input) {
       const states = statesOf(n, role, secret);
       if (states.includes("focused")) focus = ref;
       const node = { ref, role, states };
-      const name = str(n.name);
+      const name = str2(n.name);
       if (name) node.name = name;
-      let value = str(n.value);
+      let value = str2(n.value);
       if (!value && role === "link") {
         const url = n.properties?.find((p) => p.name === "url")?.value.value;
         if (typeof url === "string" && !url.startsWith("javascript:")) value = url;
       }
       if (value !== void 0) node.value = value;
-      const desc = str(n.description);
+      const desc = str2(n.description);
       if (desc) node.description = desc;
       let children = childNodes();
       const sub = n.backendDOMNodeId !== void 0 ? input.frames?.get(n.backendDOMNodeId) : void 0;
@@ -2967,55 +3048,6 @@ var SELECT_FN = `function(v) {
 	return { ok: true, label: o.label.trim() };
 }`;
 
-// ../../../plugins/browser/src/settings.ts
-function defaultLang() {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().locale || "en-US";
-  } catch {
-    return "en-US";
-  }
-}
-var DEFAULT_SETTINGS = {
-  executablePath: "",
-  mode: "headless",
-  searchUrl: "https://www.bing.com/search?q=%s",
-  proxy: "",
-  idleMinutes: 15,
-  quality: 70,
-  maxFps: 30,
-  restoreTabs: true,
-  downloadDir: "",
-  lang: defaultLang(),
-  allowEval: true,
-  mobile: true
-};
-var str2 = (v, max = 2e3) => typeof v === "string" ? v.trim().slice(0, max) : void 0;
-var num2 = (v, lo, hi) => typeof v === "number" && Number.isFinite(v) ? Math.round(Math.min(hi, Math.max(lo, v))) : void 0;
-var bool = (v) => typeof v === "boolean" ? v : void 0;
-function sanitizeSettings(raw) {
-  const r = raw ?? {};
-  const proxy = str2(r.proxy);
-  const searchUrl = str2(r.searchUrl);
-  const lang = str2(r.lang, 35);
-  const out = {
-    executablePath: str2(r.executablePath),
-    mode: r.mode === "headless" || r.mode === "window" || r.mode === "system" ? r.mode : void 0,
-    debugPort: num2(r.debugPort, 1, 65535),
-    searchUrl: searchUrl === void 0 ? void 0 : /^https?:\/\//i.test(searchUrl) ? searchUrl : void 0,
-    proxy: proxy === void 0 ? void 0 : proxy === "" || /^(https?|socks[45]?):\/\/[^\s]+$/i.test(proxy) ? proxy : void 0,
-    idleMinutes: num2(r.idleMinutes, 0, 24 * 60),
-    quality: num2(r.quality, 20, 95),
-    maxFps: num2(r.maxFps, 5, 60),
-    restoreTabs: bool(r.restoreTabs),
-    downloadDir: str2(r.downloadDir),
-    lang: lang === void 0 ? void 0 : /^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$/.test(lang) ? lang : void 0,
-    allowEval: bool(r.allowEval),
-    mobile: bool(r.mobile)
-  };
-  for (const k of Object.keys(out)) if (out[k] === void 0) delete out[k];
-  return out;
-}
-
 // ../../../plugins/browser/src/tools.ts
 var GUIDELINES = [
   "Built-in browser: it is shared with the user, who watches it live in the side panel. Open pages with browser_navigate, read them with browser_snapshot (an accessibility tree with [ref]s) and act with browser_act. Each action reports what changed, so do not snapshot again unless told the page changed a lot.",
@@ -3252,7 +3284,7 @@ var index_default = definePlugin({
       const next = await store.update((s) => ({ settings: { ...sanitizeSettings(s.settings), ...sanitizeSettings(p.settings) } }));
       saved = sanitizeSettings(next.settings);
       const cur = settings();
-      if (browser.running && (cur.executablePath !== prev.executablePath || cur.debugPort !== prev.debugPort || cur.proxy !== prev.proxy || cur.lang !== prev.lang || cur.downloadDir !== prev.downloadDir)) await browser.setMode(browser.mode, true);
+      if (browser.running && (cur.executablePath !== prev.executablePath || cur.debugPort !== prev.debugPort || cur.wsPath !== prev.wsPath || cur.proxy !== prev.proxy || cur.lang !== prev.lang || cur.downloadDir !== prev.downloadDir)) await browser.setMode(browser.mode, true);
       else if (cur.mode !== prev.mode) await browser.setMode(cur.mode);
       else if (cur.mobile !== prev.mobile) await browser.reapplyViewport();
       else if (cur.quality !== prev.quality || cur.maxFps !== prev.maxFps) await browser.activeTab?.restartScreencast();

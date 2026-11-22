@@ -171,6 +171,8 @@ src/
 |---|---|---|
 | `executablePath` | `""` | 留空自动查找 |
 | `mode` | `headless` | `window` 为独立窗口（仍同步到面板） |
+| `debugPort` | 9222 | `system` 模式下的调试端口；有 `DevToolsActivePort` 时以文件里的端口为准 |
+| `wsPath` | `""` | `system` 模式下直接给出 `/devtools/browser/<uuid>`（也可粘整条 `ws://127.0.0.1:PORT/...`）。Chrome 144+ 的 `/json` 全部 404，只能走这条；留空则自动读 `DevToolsActivePort` |
 | `searchUrl` | Bing | `%s` 为关键词 |
 | `proxy` | `""` | `http://`、`https://`、`socks5://` |
 | `idleMinutes` | 15 | 0 为不自动关闭 |

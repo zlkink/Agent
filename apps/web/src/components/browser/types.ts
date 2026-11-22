@@ -108,6 +108,8 @@ export type ViewMessage =
 export interface BrowserSettings {
 	/** Chrome DevTools port used by the "system" mode. */
 	debugPort: number;
+	/** `/devtools/browser/<uuid>` for the "system" mode (Chrome 144+ serves no /json). */
+	wsPath: string;
 	executablePath: string;
 	mode: BrowserMode;
 	searchUrl: string;

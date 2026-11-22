@@ -22,6 +22,8 @@ const M = defineMessages({
 		system: "使用系统 Chrome",
 		systemHint: "连接你正在使用的 Chrome。Chrome 144+ 可先在 chrome://inspect/#remote-debugging 勾选允许远程调试，RamiCore 会自动读取调试端口；传统方式是带 --remote-debugging-port 启动。",
 		debugPort: "调试端口（传统方式）",
+		wsPath: "WebSocket 路径",
+		wsPathHint: "Chrome 144+ 把 /json 全部关掉了，只留 WebSocket。把 DevToolsActivePort 第二行（/devtools/browser/…）填这里即可，主机固定 127.0.0.1；留空则自动读取。",
 		search: "搜索引擎",
 		custom: "自定义",
 		searchUrl: "搜索地址（%s 为关键词）",
@@ -64,6 +66,8 @@ const M = defineMessages({
 		system: "Use system Chrome",
 		systemHint: "Drive the Chrome you are using. On Chrome 144+ enable chrome://inspect/#remote-debugging and RamiCore reads the debugging port automatically; the classic way is starting Chrome with --remote-debugging-port.",
 		debugPort: "Debug port (classic)",
+		wsPath: "WebSocket path",
+		wsPathHint: "Chrome 144+ closes every /json endpoint and keeps only the WebSocket. Paste DevToolsActivePort's second line (/devtools/browser/…); the host is always 127.0.0.1. Empty: read it automatically.",
 		search: "Search engine",
 		custom: "Custom",
 		searchUrl: "Search URL (%s is the query)",
@@ -140,7 +144,7 @@ export function SettingsPopover({ settings, state, onSave, onClose }: { settings
 	const known = ENGINES.find((e) => e.url === settings.searchUrl)?.id ?? "custom";
 	const [custom, setCustom] = useState(known === "custom");
 	const engine = custom ? "custom" : known;
-	const [draft, setDraft] = useState({ proxy: settings.proxy, executablePath: settings.executablePath, downloadDir: settings.downloadDir, searchUrl: settings.searchUrl });
+	const [draft, setDraft] = useState({ proxy: settings.proxy, executablePath: settings.executablePath, downloadDir: settings.downloadDir, searchUrl: settings.searchUrl, wsPath: settings.wsPath });
 	const commit = (key: keyof typeof draft) => {
 		if (draft[key] !== settings[key]) void onSave({ [key]: draft[key] });
 	};
@@ -158,16 +162,27 @@ export function SettingsPopover({ settings, state, onSave, onClose }: { settings
 					</Row>
 				)}
 				{settings.mode === "system" && (
-					<Row label={t("debugPort")} hint={t("systemHint")}>
-						<Input
-							type="number"
-							min={1}
-							max={65535}
-							value={settings.debugPort}
-							onChange={(e) => void onSave({ debugPort: Number(e.target.value) || 9222 })}
-							className="py-1.5 font-mono text-xs"
-						/>
-					</Row>
+					<>
+						<Row label={t("debugPort")} hint={t("systemHint")}>
+							<Input
+								type="number"
+								min={1}
+								max={65535}
+								value={settings.debugPort}
+								onChange={(e) => void onSave({ debugPort: Number(e.target.value) || 9222 })}
+								className="py-1.5 font-mono text-xs"
+							/>
+						</Row>
+						<Row label={t("wsPath")} hint={t("wsPathHint")}>
+							<Input
+								value={draft.wsPath}
+								placeholder="/devtools/browser/<uuid>"
+								onChange={(e) => setDraft({ ...draft, wsPath: e.target.value })}
+								onBlur={() => commit("wsPath")}
+								className="py-1.5 font-mono text-xs"
+							/>
+						</Row>
+					</>
 				)}
 				<Row label={t("search")}>
 					<Select

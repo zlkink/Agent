@@ -51,6 +51,8 @@ const M = defineMessages({
 		systemBrowser: "系统浏览器（Chrome）",
 		systemBrowserHint: "勾选后浏览器工具连接你当前运行的 Chrome。Chrome 144+ 可先在 chrome://inspect/#remote-debugging 勾选允许远程调试，端口会自动读取；传统方式是用 --remote-debugging-port 启动。",
 		debugPort: "调试端口",
+		wsPath: "WebSocket 路径",
+		wsPathHint: "Chrome 144+ 的远程调试不再提供 /json（一律 404），只走 WebSocket。把该 Chrome 的 DevToolsActivePort 第二行（/devtools/browser/…）粘到这里；主机固定 127.0.0.1，留空则自动读取。",
 	},
 	en: {
 		title: "Connectors",
@@ -94,6 +96,8 @@ const M = defineMessages({
 		systemBrowser: "System browser (Chrome)",
 		systemBrowserHint: "Use your running Chrome for browser tools. On Chrome 144+ enable chrome://inspect/#remote-debugging and the port is read automatically; the classic way is starting Chrome with --remote-debugging-port.",
 		debugPort: "Debug port",
+		wsPath: "WebSocket path",
+		wsPathHint: "Chrome 144+ no longer serves /json (every endpoint is 404) — remote debugging is WebSocket only. Paste that Chrome's DevToolsActivePort second line (/devtools/browser/…); the host is always 127.0.0.1. Empty: read automatically.",
 	},
 });
 
@@ -139,6 +143,7 @@ export function ConnectorsView() {
 	const [busy, setBusy] = useState<string | null>(null);
 	const [systemBrowser, setSystemBrowser] = useState(false);
 	const [debugPort, setDebugPort] = useState(9222);
+	const [wsPath, setWsPath] = useState("");
 
 	const load = useCallback(async () => {
 		const [p, c] = await Promise.all([pluginCall<ProviderInfo[]>("connectors", "providers"), pluginCall<Connection[]>("connectors", "list")]);
@@ -149,10 +154,11 @@ export function ConnectorsView() {
 		void load();
 	}, [load]);
 	useEffect(() => {
-		void browserCall<{ settings: { mode: string; debugPort?: number } }>("state")
+		void browserCall<{ settings: { mode: string; debugPort?: number; wsPath?: string } }>("state")
 			.then((r) => {
 				setSystemBrowser(r.settings.mode === "system");
 				setDebugPort(r.settings.debugPort ?? 9222);
+				setWsPath(r.settings.wsPath ?? "");
 			})
 			.catch(() => {});
 	}, []);
@@ -161,6 +167,11 @@ export function ConnectorsView() {
 		setSystemBrowser(on);
 		setDebugPort(port);
 		await browserCall("settings.set", { settings: { mode: on ? "system" : "headless", debugPort: port } }).catch(() => {});
+	};
+
+	const saveWsPath = async (path: string) => {
+		setWsPath(path);
+		await browserCall("settings.set", { settings: { wsPath: path } }).catch(() => {});
 	};
 
 	const byId = (id: string) => providers.find((p) => p.id === id);
@@ -218,6 +229,19 @@ export function ConnectorsView() {
 								onBlur={() => void setSystemBrowserMode(true, debugPort)}
 								className="w-24 rounded-md border border-ink-700 bg-transparent px-2 py-1 font-mono text-xs text-ink-200"
 							/>
+						</label>
+					)}
+					{systemBrowser && (
+						<label className="mt-2 block space-y-1 text-xs text-ink-400">
+							<span className="block">{t("wsPath")}</span>
+							<input
+								value={wsPath}
+								placeholder="/devtools/browser/<uuid>"
+								onChange={(e) => setWsPath(e.target.value)}
+								onBlur={() => void saveWsPath(wsPath.trim())}
+								className="w-full rounded-md border border-ink-700 bg-transparent px-2 py-1 font-mono text-xs text-ink-200"
+							/>
+							<span className="block text-[11px] leading-relaxed text-ink-500">{t("wsPathHint")}</span>
 						</label>
 					)}
 				</div>
