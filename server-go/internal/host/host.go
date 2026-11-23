@@ -1156,6 +1156,9 @@ func (h *Host) runCompaction(s *Session, reason string) {
 	h.event(s.ID, map[string]any{"type": "compaction_start", "reason": reason})
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
+	// Discard late events from the finished turn (background tasks, a closed query): a stale "done" would
+	// otherwise be consumed as the answer to this prompt.
+	sc.Drain()
 	err := sc.Prompt(ctx, "/compact", "", func(raw json.RawMessage) error {
 		var ev struct {
 			Type   string `json:"type"`
@@ -1579,6 +1582,9 @@ func (h *Host) runPrompt(s *Session, text string, images ...[]any) {
 // in the chat through auto_retry_start/end so the wait is not mistaken for a
 // hang. Settings → Chat controls the attempt count.
 func (h *Host) promptWithRetry(ctx context.Context, s *Session, sc *sidecar.Client, text, turnCtx string, media []any, handle func(json.RawMessage) error, hasOutput func() bool) error {
+	// A late "done" left by the previous turn (background command, closed query) would end this prompt
+	// immediately with an empty reply before the model is called. Start from a clean channel.
+	sc.Drain()
 	attempts := h.settingInt("retryAttempts", 3, 0, 10)
 	err := sc.PromptWithImages(ctx, text, turnCtx, media, handle)
 	for attempt := 1; err != nil && attempt <= attempts && ctx.Err() == nil && !hasOutput() && retryableProviderError(err); attempt++ {
@@ -1863,7 +1869,7 @@ func (h *Host) dispatch(method string, raw json.RawMessage) (any, error) {
 	switch method {
 	case "host.info":
 		return map[string]any{
-			"version": "0.30.43-ramicore", "piVersion": h.cfg.PIVersion, "protocol": protocolVersion,
+			"version": "0.30.44-ramicore", "piVersion": h.cfg.PIVersion, "protocol": protocolVersion,
 			"cwd": h.cfg.Cwd, "platform": runtime.GOOS,
 		}, nil
 

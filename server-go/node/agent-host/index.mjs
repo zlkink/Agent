@@ -325,6 +325,10 @@ async function handle(msg) {
     }
 
     case 'result': {
+      // Background tasks can deliver a late result after the turn already ended.
+      // Treating it as the current turn would end the next prompt with an empty
+      // reply before the model is called.
+      if (!busy) return;
       resultSeen = true;
       const isError = !!msg.is_error || (!!msg.subtype && msg.subtype !== 'success');
       // Claude Code knows its own system prompt, tools and window; report the
