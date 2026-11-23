@@ -190,6 +190,89 @@ func (h *Host) runCodexPrompt(s *Session, text string) {
 		liveMu.Unlock()
 		h.event(s.ID, map[string]any{"type": "message_update", "delta": map[string]any{"type": "text_delta", "contentIndex": idx, "delta": delta}})
 	}
+	var toolAt = map[string]int{}
+	argsOf := func(raw json.RawMessage) any {
+		if len(raw) == 0 {
+			return map[string]any{}
+		}
+		var v any
+		if json.Unmarshal(raw, &v) != nil || v == nil {
+			return map[string]any{}
+		}
+		return v
+	}
+	// Codex reports tools as events, not as message blocks. Add the block so the
+	// UI can show a card, and keep the final message complete after a reload.
+	addTool := func(id, name string, args any) {
+		if id == "" {
+			return
+		}
+		liveMu.Lock()
+		idx := len(content)
+		block := map[string]any{"type": "toolCall", "id": id, "name": name, "arguments": args}
+		content = append(content, block)
+		toolAt[id] = idx
+		thinkingAt, textAt = -1, -1
+		liveMu.Unlock()
+		h.event(s.ID, map[string]any{"type": "message_update", "delta": map[string]any{"type": "toolcall_start", "contentIndex": idx, "id": id, "name": name}})
+		h.event(s.ID, map[string]any{"type": "message_update", "delta": map[string]any{"type": "toolcall_end", "contentIndex": idx, "toolCall": block}})
+		h.event(s.ID, map[string]any{"type": "tool_execution_start", "toolCallId": id, "toolName": name, "args": args})
+	}
+	updateToolArgs := func(id string, args any) {
+		liveMu.Lock()
+		idx, ok := toolAt[id]
+		if !ok {
+			liveMu.Unlock()
+			return
+		}
+		block := content[idx].(map[string]any)
+		block["arguments"] = args
+		liveMu.Unlock()
+		h.event(s.ID, map[string]any{"type": "message_update", "delta": map[string]any{"type": "toolcall_end", "contentIndex": idx, "toolCall": block}})
+	}
+	finishTool := func(id, name string, out []any, isErr bool) {
+		h.event(s.ID, map[string]any{"type": "tool_execution_end", "toolCallId": id, "toolName": name, "result": map[string]any{"content": out}, "isError": isErr})
+		s.appendMessage(map[string]any{
+			"role": "toolResult", "toolCallId": id, "toolName": name,
+			"content": out, "isError": isErr, "timestamp": time.Now().UnixMilli(),
+		})
+	}
+	mcpOutput := func(raw json.RawMessage, errMsg string) ([]any, bool) {
+		if errMsg != "" {
+			return []any{map[string]any{"type": "text", "text": errMsg}}, true
+		}
+		if len(raw) == 0 {
+			return []any{}, false
+		}
+		var v struct {
+			Content           []any `json:"content"`
+			StructuredContent any   `json:"structuredContent"`
+			IsError           bool  `json:"isError"`
+		}
+		if json.Unmarshal(raw, &v) == nil {
+			out := []any{}
+			for _, c := range v.Content {
+				m := asMap(c)
+				switch str(m["type"]) {
+				case "text":
+					out = append(out, map[string]any{"type": "text", "text": str(m["text"])})
+				case "image":
+					out = append(out, map[string]any{"type": "image", "data": str(m["data"]), "mimeType": firstNonEmpty(str(m["mimeType"]), str(m["mime_type"]))})
+				}
+			}
+			if len(out) == 0 && v.StructuredContent != nil {
+				if b, err := json.Marshal(v.StructuredContent); err == nil {
+					out = append(out, map[string]any{"type": "text", "text": string(b)})
+				}
+			}
+			return out, v.IsError
+		}
+		var text string
+		if json.Unmarshal(raw, &text) == nil {
+			return []any{map[string]any{"type": "text", "text": text}}, false
+		}
+		return []any{map[string]any{"type": "text", "text": string(raw)}}, false
+	}
 	var usage map[string]any
 	var runErr error
 	pendingAgent := ""
@@ -204,7 +287,6 @@ func (h *Host) runCodexPrompt(s *Session, text string) {
 		}
 		pendingAgent = ""
 	}
-	toolNames := map[string]string{}
 	sc := bufio.NewScanner(stdout)
 	sc.Buffer(make([]byte, 64<<10), 16<<20)
 	for sc.Scan() {
@@ -227,22 +309,17 @@ func (h *Host) runCodexPrompt(s *Session, text string) {
 		item := ev.Item
 		switch ev.Type {
 		case "item.started":
-			if item.Type == "command_execution" || item.Type == "file_change" {
-				flushPending(true)
-			}
 			switch item.Type {
 			case "command_execution":
-				toolNames[item.ID] = "bash"
-				h.event(s.ID, map[string]any{
-					"type": "tool_execution_start", "toolCallId": item.ID,
-					"toolName": "bash", "args": map[string]any{"command": item.Command},
-				})
+				flushPending(true)
+				addTool(item.ID, "bash", map[string]any{"command": item.Command})
 			case "file_change":
-				toolNames[item.ID] = "edit"
-				h.event(s.ID, map[string]any{
-					"type": "tool_execution_start", "toolCallId": item.ID,
-					"toolName": "edit", "args": map[string]any{"changes": item.Changes},
-				})
+				flushPending(true)
+				addTool(item.ID, "edit", map[string]any{"changes": item.Changes})
+			case "mcp_tool_call":
+				flushPending(true)
+				name := firstNonEmpty(item.Tool, item.Server, "mcp")
+				addTool(item.ID, name, argsOf(item.Arguments))
 			}
 		case "item.completed":
 			switch item.Type {
@@ -270,15 +347,30 @@ func (h *Host) runCodexPrompt(s *Session, text string) {
 				}
 			case "command_execution":
 				isErr := item.ExitCode != nil && *item.ExitCode != 0
-				h.event(s.ID, map[string]any{
-					"type": "tool_execution_end", "toolCallId": item.ID, "toolName": "bash",
-					"result": map[string]any{"output": item.AggregatedOutput}, "isError": isErr,
-				})
+				updateToolArgs(item.ID, map[string]any{"command": item.Command})
+				out := []any{}
+				if item.AggregatedOutput != "" {
+					out = append(out, map[string]any{"type": "text", "text": item.AggregatedOutput})
+				}
+				finishTool(item.ID, "bash", out, isErr)
 			case "file_change":
-				h.event(s.ID, map[string]any{
-					"type": "tool_execution_end", "toolCallId": item.ID, "toolName": "edit",
-					"result": map[string]any{"changes": item.Changes}, "isError": false,
-				})
+				updateToolArgs(item.ID, map[string]any{"changes": item.Changes})
+				out := []any{}
+				if item.Changes != nil {
+					if b, err := json.Marshal(item.Changes); err == nil {
+						out = append(out, map[string]any{"type": "text", "text": string(b)})
+					}
+				}
+				finishTool(item.ID, "edit", out, false)
+			case "mcp_tool_call":
+				name := firstNonEmpty(item.Tool, item.Server, "mcp")
+				updateToolArgs(item.ID, argsOf(item.Arguments))
+				errMsg := ""
+				if item.Error != nil {
+					errMsg = item.Error.Message
+				}
+				out, isErr := mcpOutput(item.Result, errMsg)
+				finishTool(item.ID, name, out, isErr)
 			}
 		case "turn.completed":
 			usage = ev.Usage
@@ -335,14 +427,21 @@ func (h *Host) runCodexPrompt(s *Session, text string) {
 }
 
 type codexItem struct {
-	ID               string `json:"id"`
-	Type             string `json:"type"`
-	Text             string `json:"text"`
-	Phase            string `json:"phase"`
-	Command          string `json:"command"`
-	AggregatedOutput string `json:"aggregated_output"`
-	ExitCode         *int   `json:"exit_code"`
-	Changes          any    `json:"changes"`
+	ID               string          `json:"id"`
+	Type             string          `json:"type"`
+	Text             string          `json:"text"`
+	Phase            string          `json:"phase"`
+	Command          string          `json:"command"`
+	AggregatedOutput string          `json:"aggregated_output"`
+	ExitCode         *int            `json:"exit_code"`
+	Changes          any             `json:"changes"`
+	Server           string          `json:"server"`
+	Tool             string          `json:"tool"`
+	Arguments        json.RawMessage `json:"arguments"`
+	Result           json.RawMessage `json:"result"`
+	Error            *struct {
+		Message string `json:"message"`
+	} `json:"error"`
 }
 
 func codexPromptWithHistory(history []map[string]any, text string) string {
